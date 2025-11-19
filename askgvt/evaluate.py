@@ -118,7 +118,7 @@ def load_questions(csv_path: str, num_questions: int = 100, shuffle: bool = True
                 'id': int(row['id']),
                 'question': row['question'],
                 'category': row['category'],
-                'expected_videos': row['expected_videos'],
+                'expected_videos': row.get('expected_videos', row.get('expected_video_title', '')),
                 'difficulty': row['difficulty']
             })
 
@@ -214,6 +214,9 @@ def run_single_evaluation(
         all_hits = narrative_hits + transcript_hits + image_hits
         result.videos_found = list(set(hit.get('video_id', '') for hit in all_hits))
 
+        # Also collect video titles for matching
+        video_titles_found = list(set(hit.get('video_title', '') for hit in all_hits))
+
         # Answer results
         result.final_answer = final_state.get('final_answer', '')
 
@@ -230,10 +233,10 @@ def run_single_evaluation(
 
         result.retry_count = final_state.get('retry_count', 0)
 
-        # Check if expected video was found
+        # Check if expected video was found (match by video_id or video_title)
         expected = question['expected_videos'].split(',')
         result.found_expected_video = any(
-            exp.strip() in result.videos_found
+            exp.strip() in result.videos_found or exp.strip() in video_titles_found
             for exp in expected
         )
 
