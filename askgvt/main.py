@@ -51,7 +51,7 @@ class MockEmbeddings(Embeddings):
 
 def create_agent(
     anthropic_api_key: Optional[str] = None,
-    model: str = "claude-sonnet-4-20250514",
+    model: str = "claude-3-5-haiku-20241022",
     embedding_model: str = "mock"
 ):
     """Create and return the AskGVT agent.
