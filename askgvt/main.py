@@ -32,7 +32,11 @@ def create_agent(
     if not os.getenv("OPENAI_API_KEY"):
         raise ValueError("OPENAI_API_KEY not set")
 
-    embeddings = OpenAIEmbeddings(model=embedding_model)
+    # Disable tiktoken validation to avoid network issues
+    embeddings = OpenAIEmbeddings(
+        model=embedding_model,
+        check_embedding_ctx_length=False
+    )
     llm = ChatOpenAI(model=model, temperature=0)
     client = QdrantClient(location=":memory:")
 
