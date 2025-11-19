@@ -1,0 +1,99 @@
+id,question,category,expected_video_title,difficulty
+1,How do I make chocolate chip cookies that don't spread too much in the oven?,cooking,Foolproof Chocolate Chip Cookies - Why Yours Keep Failing,medium
+2,What's the secret to making authentic Italian caprese salad?,cooking,Perfect Caprese Salad in 5 Minutes - Italian Grandma's Secret Tips,easy
+3,How do I get restaurant-quality fried rice at home without a professional wok?,cooking,Master Wok Cooking at Home - Restaurant-Quality Fried Rice,hard
+4,Why do my chocolate chip cookies always come out flat and burnt?,cooking,Foolproof Chocolate Chip Cookies - Why Yours Keep Failing,medium
+5,How do I make a quick caprese salad for dinner tonight?,cooking,Perfect Caprese Salad in 5 Minutes - Italian Grandma's Secret Tips,easy
+6,What's the difference between home wok cooking and restaurant wok cooking techniques?,cooking,Master Wok Cooking at Home - Restaurant-Quality Fried Rice,hard
+7,How do I prevent my chocolate chip cookie dough from being too sticky or too dry?,cooking,Foolproof Chocolate Chip Cookies - Why Yours Keep Failing,medium
+8,"Which phone has better cameras, iPhone 15 Pro or Samsung Galaxy S24 Ultra?",tech,iPhone 15 Pro vs Samsung Galaxy S24 Ultra: The ULTIMATE Comparison!,easy
+9,How do I build my first gaming PC step by step?,tech,First Time Building a Gaming PC? Here's Everything You Need to Know in 2025,medium
+10,What smart home devices should I start with as a beginner?,tech,Smart Home Setup for Beginners: 10 Essential Devices You Need in 2025,easy
+11,What are the performance differences between iPhone 15 Pro and Galaxy S24 Ultra for gaming?,tech,iPhone 15 Pro vs Samsung Galaxy S24 Ultra: The ULTIMATE Comparison!,medium
+12,How do I choose compatible components when building a gaming PC for the first time?,tech,First Time Building a Gaming PC? Here's Everything You Need to Know in 2025,hard
+13,How do I set up a smart home automation system from scratch?,tech,Smart Home Setup for Beginners: 10 Essential Devices You Need in 2025,medium
+14,What is the battery life comparison between iPhone 15 Pro and Samsung Galaxy S24 Ultra?,tech,iPhone 15 Pro vs Samsung Galaxy S24 Ultra: The ULTIMATE Comparison!,easy
+15,How do I do a proper squat without hurting my knees?,fitness,Perfect Squat Form: Avoid These 5 Common Mistakes,medium
+16,What should I eat before a morning workout?,fitness,What to Eat Before and After Your Workout - Sports Nutritionist Explains,easy
+17,How do I start HIIT training as a complete beginner?,fitness,20-Minute HIIT Workout for Beginners - No Equipment Needed,easy
+18,What are the most common squat mistakes people make?,fitness,Perfect Squat Form: Avoid These 5 Common Mistakes,medium
+19,What is the best post-workout nutrition for muscle recovery?,fitness,What to Eat Before and After Your Workout - Sports Nutritionist Explains,medium
+20,How do I get a good cardio workout at home without any equipment?,fitness,20-Minute HIIT Workout for Beginners - No Equipment Needed,easy
+21,What is the difference between pre-workout and post-workout meal timing?,fitness,What to Eat Before and After Your Workout - Sports Nutritionist Explains,hard
+22,How do I improve my aim in Valorant?,gaming,How to ACTUALLY Improve Your Valorant Aim - Radiant Player Tips,medium
+23,What are the best crosshair placement techniques for high-rank Valorant players?,gaming,How to ACTUALLY Improve Your Valorant Aim - Radiant Player Tips,hard
+24,How do I build an automatic farm in Minecraft using redstone?,gaming,Minecraft Redstone Tutorial: Build Your First Automatic Farm,medium
+25,What is the easiest redstone contraption for beginners to build in Minecraft?,gaming,Minecraft Redstone Tutorial: Build Your First Automatic Farm,easy
+26,How do I create my first character in Elden Ring?,gaming,Elden Ring Complete Beginner's Guide - Character Creation & Early Game Tips,easy
+27,What should I do first when starting Elden Ring as a complete beginner?,gaming,Elden Ring Complete Beginner's Guide - Character Creation & Early Game Tips,easy
+28,What are the most important early game mechanics to understand in Elden Ring?,gaming,Elden Ring Complete Beginner's Guide - Character Creation & Early Game Tips,medium
+29,How do I position my hands correctly when learning piano?,music,Piano Basics: Proper Hand Position & Finger Technique for Beginners,easy
+30,What is the proper finger technique for piano beginners?,music,Piano Basics: Proper Hand Position & Finger Technique for Beginners,easy
+31,How can I start learning guitar as a complete beginner?,music,Learn Guitar in 30 Days: Complete Beginner Course (Day 1),easy
+32,What should I learn on my first day of guitar lessons?,music,Learn Guitar in 30 Days: Complete Beginner Course (Day 1),easy
+33,How do I make my first beat in Logic Pro?,music,Music Production 101: How to Make Your First Beat in Logic Pro,medium
+34,What are the basics of music production for beginners?,music,Music Production 101: How to Make Your First Beat in Logic Pro,medium
+35,How do I get started with beat making in Logic Pro as a beginner?,music,Music Production 101: How to Make Your First Beat in Logic Pro,medium
+36,How do I navigate the best night markets in Chiang Mai for food and shopping?,travel,Chiang Mai Night Markets: Ultimate Food & Shopping Guide,easy
+37,What is it like visiting Tokyo for the first time as a tourist?,travel,First Time in Tokyo: 24 Hours of Culture Shock,easy
+38,How do I plan a complete driving route along the Amalfi Coast?,travel,Driving the Amalfi Coast: Complete Route Guide for 2025,medium
+39,What are the must-try street foods at Chiang Mai's night markets?,travel,Chiang Mai Night Markets: Ultimate Food & Shopping Guide,easy
+40,How do I deal with culture shock when traveling to Japan for the first time?,travel,First Time in Tokyo: 24 Hours of Culture Shock,medium
+41,What are the road conditions and driving challenges on the Amalfi Coast in 2025?,travel,Driving the Amalfi Coast: Complete Route Guide for 2025,hard
+42,How do I maximize one day in Tokyo as a first-time visitor?,travel,First Time in Tokyo: 24 Hours of Culture Shock,medium
+43,How do I fix kitchen cabinets that got water damaged under the sink?,diy,How to Fix Water Damaged Kitchen Cabinets Like a Pro,medium
+44,What's the easiest way to build floating shelves for beginners?,diy,DIY Floating Shelves from Reclaimed Wood - Easy Weekend Project!,easy
+45,How can I replace my phone screen myself without going to a repair shop?,diy,Replace Your Cracked Phone Screen at Home - Save $200+!,medium
+46,How do I restore swollen cabinet doors from water damage?,diy,How to Fix Water Damaged Kitchen Cabinets Like a Pro,hard
+47,What tools do I need to make floating shelves from old wood?,diy,DIY Floating Shelves from Reclaimed Wood - Easy Weekend Project!,easy
+48,Is it worth fixing my cracked phone screen at home vs paying for professional repair?,diy,Replace Your Cracked Phone Screen at Home - Save $200+!,easy
+49,How do I properly sand and refinish water damaged cabinet wood?,diy,How to Fix Water Damaged Kitchen Cabinets Like a Pro,hard
+50,How do I replace my car's air filter myself?,automotive,How to Change Your Car's Air Filter in 5 Minutes - Save $50!,easy
+51,What are the signs that my brake pads are worn out?,automotive,5 Warning Signs Your Brake Pads Need Replacement - Don't Ignore These!,medium
+52,Is the 2024 Tesla Model S worth the high price tag?,automotive,"2024 Tesla Model S Review: Is It Worth $90,000?",medium
+53,How can I save money on basic car maintenance?,automotive,How to Change Your Car's Air Filter in 5 Minutes - Save $50!,easy
+54,What should I listen for to know when my brakes need service?,automotive,5 Warning Signs Your Brake Pads Need Replacement - Don't Ignore These!,easy
+55,How does the 2024 Tesla Model S compare to other luxury electric vehicles in its price range?,automotive,"2024 Tesla Model S Review: Is It Worth $90,000?",hard
+56,What happens if I ignore grinding noises when I brake?,automotive,5 Warning Signs Your Brake Pads Need Replacement - Don't Ignore These!,medium
+57,How do I solve quadratic equations step by step?,education,Master Quadratic Equations in 15 Minutes - Complete Guide,medium
+58,What is Earth's magnetic field and why is it important?,education,Why Earth's Magnetic Field is Humanity's Invisible Shield,easy
+59,How do I create my first personal budget as a beginner?,education,Build Your First Budget in 20 Minutes - Personal Finance 101,easy
+60,What are the different methods for solving quadratic equations?,education,Master Quadratic Equations in 15 Minutes - Complete Guide,medium
+61,How does Earth's magnetic field protect us from solar radiation?,education,Why Earth's Magnetic Field is Humanity's Invisible Shield,medium
+62,What should I include in a basic monthly budget?,education,Build Your First Budget in 20 Minutes - Personal Finance 101,easy
+63,How do I use the quadratic formula to find roots of equations?,education,Master Quadratic Equations in 15 Minutes - Complete Guide,hard
+64,How do I get salon-quality volume in my hair at home?,beauty,Salon Blowout at Home | Professional Techniques for Volume & Shine,medium
+65,What are the best techniques for covering dark under eye circles?,beauty,How to Cover Dark Circles Like a Pro | Color Correcting Tutorial,easy
+66,How do I create a complete skincare routine for glowing skin?,beauty,My Complete Skincare Routine for Glowing Skin | Morning & Night,medium
+67,What is color correcting and how do I use it for dark circles?,beauty,How to Cover Dark Circles Like a Pro | Color Correcting Tutorial,easy
+68,How do I blow dry my hair like a professional stylist?,beauty,Salon Blowout at Home | Professional Techniques for Volume & Shine,hard
+69,What should I include in my morning vs night skincare routine?,beauty,My Complete Skincare Routine for Glowing Skin | Morning & Night,medium
+70,"How do I achieve shiny, voluminous hair without going to a salon?",beauty,Salon Blowout at Home | Professional Techniques for Volume & Shine,hard
+71,How do I make homemade dog treats that are healthy for my puppy?,pets,DIY Healthy Dog Treats Your Pup Will Love - 3 Simple Recipes!,easy
+72,What are the most important commands to teach a new puppy first?,pets,Puppy Training 101: Master These 5 Essential Commands in One Week,easy
+73,How do I set up a litter box properly for my new cat?,pets,"Complete Cat Litter Guide: Best Types, Setup & Maintenance Tips",easy
+74,What is the best type of cat litter for odor control and easy cleaning?,pets,"Complete Cat Litter Guide: Best Types, Setup & Maintenance Tips",medium
+75,"How can I train my puppy to sit, stay, and come when called in just one week?",pets,Puppy Training 101: Master These 5 Essential Commands in One Week,medium
+76,What are simple recipes for making dog treats at home without artificial ingredients?,pets,DIY Healthy Dog Treats Your Pup Will Love - 3 Simple Recipes!,medium
+77,How do I compare different cat litter materials and maintain the litter box to prevent health issues?,pets,"Complete Cat Litter Guide: Best Types, Setup & Maintenance Tips",hard
+78,How do I compose better landscape photos for beginners?,photography,Landscape Photography Composition: 7 Rules That Actually Matter,easy
+79,What camera settings should I learn first as a new photographer?,photography,5 Camera Settings Every Beginner Photographer Must Know,easy
+80,How do I take portraits using natural light from windows?,photography,Natural Light Portrait Photography: Window Light Techniques That Work,medium
+81,What are the essential composition rules for landscape photography?,photography,Landscape Photography Composition: 7 Rules That Actually Matter,medium
+82,How do I control window light direction for better portrait photography?,photography,Natural Light Portrait Photography: Window Light Techniques That Work,medium
+83,What camera settings do professional photographers recommend for beginners?,photography,5 Camera Settings Every Beginner Photographer Must Know,easy
+84,How do I apply advanced composition techniques to improve my landscape images?,photography,Landscape Photography Composition: 7 Rules That Actually Matter,hard
+85,How do I build a minimalist work wardrobe with just a few key pieces?,fashion,10 Essential Pieces for a Capsule Work Wardrobe 2025,medium
+86,What are the essential clothing items every professional woman needs in 2025?,fashion,10 Essential Pieces for a Capsule Work Wardrobe 2025,easy
+87,How do I identify high-quality fabric when shopping for clothes?,fashion,Fabric Guide: How to Choose Quality Materials That Last,medium
+88,What fabric materials last longest and are worth investing in?,fashion,Fabric Guide: How to Choose Quality Materials That Last,hard
+89,How can I make my wardrobe more environmentally friendly?,fashion,Sustainable Fashion: 7 Ways to Build an Eco-Friendly Wardrobe,easy
+90,What are the best ways to shop sustainably for clothes without breaking the budget?,fashion,Sustainable Fashion: 7 Ways to Build an Eco-Friendly Wardrobe,medium
+91,How do I transition to ethical fashion while maintaining my personal style?,fashion,Sustainable Fashion: 7 Ways to Build an Eco-Friendly Wardrobe,hard
+92,How do I start diversifying my investment portfolio as a complete beginner?,finance,Complete Beginner's Guide to Investment Portfolio Diversification in 2025,easy
+93,What are the best budgeting methods that actually work in real life?,finance,5 Budgeting Methods That Actually Work (I Tested Them All for 6 Months),easy
+94,How can I quickly increase my credit score by 200 points?,finance,How I Increased My Credit Score by 200 Points in 12 Months (Proven Strategy),medium
+95,What is portfolio diversification and how do I implement it in 2025?,finance,Complete Beginner's Guide to Investment Portfolio Diversification in 2025,medium
+96,Which budgeting method should I choose if I've tried everything and failed?,finance,5 Budgeting Methods That Actually Work (I Tested Them All for 6 Months),medium
+97,How do I build a diversified investment portfolio with limited knowledge and budget?,finance,Complete Beginner's Guide to Investment Portfolio Diversification in 2025,hard
+98,What proven strategies can help me repair bad credit and achieve excellent credit score?,finance,How I Increased My Credit Score by 200 Points in 12 Months (Proven Strategy),hard
