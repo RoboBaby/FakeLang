@@ -1,0 +1,15 @@
+# AskGVT Dependencies
+
+# LangChain ecosystem
+langchain>=0.1.0
+langgraph>=0.0.20
+langchain-openai>=0.0.5
+
+# Vector database
+qdrant-client>=1.7.0
+
+# Data validation
+pydantic>=2.0.0
+
+# Type hints
+typing-extensions>=4.0.0
