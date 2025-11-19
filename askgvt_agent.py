@@ -1,11 +1,22 @@
 """
-AskGVT Retrieval Agent - Alpha Version
+AskGVT Retrieval Agent - Alpha Version (Full Architecture)
 A video-first search engine using LangGraph and Qdrant.
+
+This implements the complete retrieval pipeline with:
+- classify_query: Structured query classification
+- plan_retrieval: Multi-source retrieval planning
+- search_narrative/transcript/image: RAG tools
+- fuse_evidence: Evidence aggregation
+- background_answer: LLM-only knowledge
+- generate_answer: Hybrid answer generation
+- answer_critic: Answer quality check with retry loop
 """
 
 import os
-from typing import List, Optional, Literal, Annotated
+import json
+from typing import List, Optional, Literal, Dict, Any, cast
 from datetime import datetime
+from math import floor
 
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
@@ -19,260 +30,458 @@ from langgraph.graph import StateGraph, END
 
 
 # =============================================================================
-# Part 1: The Data Structures (Strict Type Definitions)
+# Part 1: Complete Type Definitions
 # =============================================================================
 
-class VideoChunkMetadata(BaseModel):
-    """Schema for Qdrant payload structure."""
+class RetrievalHit(TypedDict):
+    """Single retrieval result from any index."""
+    source: Literal["narrative", "transcript", "image"]
     video_id: str
-    video_title: str
-    creator_id: str
-    upload_date: str  # ISO 8601 format YYYY-MM-DD
-    start_time: float  # Seconds
-    end_time: float    # Seconds
-    chunk_type: Literal["visual_frame", "narrative_action", "transcript"]
-
-    # Specific fields based on type (Optional but populated based on type)
-    visual_objects: Optional[List[str]] = None  # e.g., ["Air Fryer", "Nike Logo"]
-    visual_text_ocr: Optional[str] = None       # Text read from screen
-    action_verb: Optional[str] = None           # e.g., "chopping", "running"
-    speaker_name: Optional[str] = None          # For transcripts
+    start_s: float
+    end_s: float
+    score: float
+    text: str
+    metadata: Dict[str, Any]
 
 
-class VideoCitation(BaseModel):
-    """Citation model - the 'receipt' for claims."""
+class EvidenceClip(TypedDict):
+    """A clip selected as evidence for the answer."""
     video_id: str
-    timestamp: float
-    reason: str  # Why was this clip selected?
-    thumbnail_url: str  # Mock URL
+    start_s: float
+    end_s: float
+    reason: str
+    score: float
+    metadata: Dict[str, Any]
 
 
-class FinalResponse(BaseModel):
-    """Final output structure with answer and citations."""
-    answer_text: str
-    citations: List[VideoCitation]
-    confidence_score: float
+class FusedEvidence(TypedDict):
+    """Aggregated evidence from all sources."""
+    num_videos: int
+    num_segments: int
+    categories: List[str]
+    time_horizon: str
+    key_patterns: List[str]
+    disagreements: List[str]
+    limitations: List[str]
+    segments: List[Dict[str, Any]]
 
 
-# =============================================================================
-# Part 2: The LangGraph State Schema
-# =============================================================================
+class AnswerMetadata(TypedDict):
+    """Metadata about how the answer was generated."""
+    used_sources: List[Literal["narrative", "transcript", "image", "llm_background"]]
+    num_videos_considered: int
+    evidence_clips: List[EvidenceClip]
+    coverage: Literal["high", "medium", "low", "none"]
+    limitations: List[str]
+    critic: Optional[Dict[str, Any]]
 
-class AgentState(TypedDict):
-    """Stateful schema for the LangGraph agent."""
+
+class AskGVTState(TypedDict):
+    """Complete state schema for the LangGraph agent."""
     # Input
     user_query: str
-    current_date: str  # Important for "trending this week" queries
+    normalized_query: Optional[str]
 
-    # Router Outputs
-    intent: Literal["frame_lookup", "narrative_sequence", "verbal_fact", "comprehensive_trend"]
-    time_filter: Optional[str]  # e.g., "2023-01-01" derived from user query
+    # Classification (aligned with CSV taxonomy)
+    category: Optional[str]
+    capability: Optional[str]
+    intent: Optional[str]
+    evidence_required: Optional[bool]
+    difficulty: Optional[str]
 
-    # Retrieval State (Separated by source for distinct processing)
-    visual_hits: List[Document]
-    narrative_hits: List[Document]
-    transcript_hits: List[Document]
+    question_type: Optional[str]
+    needs_visual_evidence: Optional[bool]
+    needs_freshness: Optional[bool]
+    time_horizon: Optional[str]
+    strict_askgvt_only: Optional[bool]
+    explicit_video_ids: List[str]
 
-    # Grading State
-    is_relevant: bool
+    # Retrieval planning & results
+    retrieval_plan: Optional[Dict[str, Any]]
+    narrative_hits: List[RetrievalHit]
+    transcript_hits: List[RetrievalHit]
+    image_hits: List[RetrievalHit]
+    fused_evidence: Optional[FusedEvidence]
 
-    # Final Output
-    final_answer: FinalResponse
+    # Reasoning
+    background_answer: Optional[str]
+    final_answer: Optional[str]
+    answer_metadata: Optional[AnswerMetadata]
+
+    # Control flow
+    retry_count: int
 
 
 # =============================================================================
-# Part 3: Router Pydantic Models for Structured Output
+# Part 2: Structured Output Models for LLM Tools
 # =============================================================================
 
-class RouterOutput(BaseModel):
-    """Structured output for the router."""
-    intent: Literal["frame_lookup", "narrative_sequence", "verbal_fact", "comprehensive_trend"] = Field(
-        description="The classified intent of the user query"
+class ClassificationOutput(BaseModel):
+    """Structured output for query classification."""
+    category: str = Field(
+        description="Domain category: cooking, fitness, fashion, tech, DIY, etc."
     )
-    time_filter: Optional[str] = Field(
-        default=None,
-        description="Date filter extracted from query in ISO 8601 format (YYYY-MM-DD), if any"
+    capability: Literal[
+        "temporal_reasoning", "frame_detection", "pose_detection",
+        "motion_analysis", "narrative_segmentation", "audio_visual_alignment",
+        "creator_enterprise_analytics"
+    ] = Field(description="Required visual understanding capability")
+    intent: Literal[
+        "trend", "find", "count", "compare", "explain",
+        "sequence", "verify", "correlate", "detect_change"
+    ] = Field(description="User's intent")
+    evidence_required: bool = Field(
+        description="Whether answer must be grounded in video evidence"
     )
-    reasoning: str = Field(
-        description="Brief explanation of why this intent was selected"
+    difficulty: Literal["easy", "medium", "hard"] = Field(
+        description="Complexity of the question"
+    )
+    question_type: Literal[
+        "trend", "how_to", "comparison", "analytics",
+        "factoid", "content_search", "moderation", "other"
+    ] = Field(description="High-level question category")
+    needs_visual_evidence: bool = Field(
+        description="Whether answer requires AskGVT corpus vs general knowledge"
+    )
+    needs_freshness: bool = Field(
+        description="Whether recency/trending matters"
+    )
+    time_horizon: Literal[
+        "this_week", "last_month", "last_year", "all_time", "unspecified"
+    ] = Field(description="Time constraint for the query")
+    strict_askgvt_only: bool = Field(
+        description="Must answer only from video corpus, no external knowledge"
+    )
+    explicit_video_ids: List[str] = Field(
+        default_factory=list,
+        description="Specific video IDs mentioned in query"
     )
 
 
-# =============================================================================
-# Part 4: Mock Data Setup
-# =============================================================================
+class QueryVariant(BaseModel):
+    """A query variant for a specific index."""
+    target: Literal["narrative", "transcript", "image"]
+    query: str
+    weight: float = 1.0
 
-# Mock data representing the 3 videos
-MOCK_VIDEO_DATA = [
-    # Video A (Cooking): "Gordon Ramsay Style Burger"
-    {
-        "id": 1,
-        "text": "Close up of 'Wagyu' beef label on premium meat packaging",
-        "metadata": VideoChunkMetadata(
-            video_id="video_A",
-            video_title="Gordon Ramsay Style Burger",
-            creator_id="chef_gordon_fan",
-            upload_date="2025-01-15",
-            start_time=10.0,
-            end_time=10.0,
-            chunk_type="visual_frame",
-            visual_objects=["Wagyu beef label", "meat packaging"],
-            visual_text_ocr="Wagyu"
-        ).model_dump()
-    },
-    {
-        "id": 2,
-        "text": "Chef aggressively smashes patty onto cast iron skillet with force",
-        "metadata": VideoChunkMetadata(
-            video_id="video_A",
-            video_title="Gordon Ramsay Style Burger",
-            creator_id="chef_gordon_fan",
-            upload_date="2025-01-15",
-            start_time=10.0,
-            end_time=15.0,
-            chunk_type="narrative_action",
-            action_verb="smashing"
-        ).model_dump()
-    },
-    {
-        "id": 3,
-        "text": "Always season from a height for even distribution",
-        "metadata": VideoChunkMetadata(
-            video_id="video_A",
-            video_title="Gordon Ramsay Style Burger",
-            creator_id="chef_gordon_fan",
-            upload_date="2025-01-15",
-            start_time=12.0,
-            end_time=12.0,
-            chunk_type="transcript",
-            speaker_name="Chef"
-        ).model_dump()
-    },
 
-    # Video B (Tech): "RTX 5090 Unboxing"
-    {
-        "id": 4,
-        "text": "Box clearly shows '128GB VRAM' text on RTX 5090 graphics card packaging",
-        "metadata": VideoChunkMetadata(
-            video_id="video_B",
-            video_title="RTX 5090 Unboxing",
-            creator_id="tech_reviewer_99",
-            upload_date="2025-02-20",
-            start_time=5.0,
-            end_time=5.0,
-            chunk_type="visual_frame",
-            visual_objects=["RTX 5090 box", "graphics card"],
-            visual_text_ocr="128GB VRAM"
-        ).model_dump()
-    },
-    {
-        "id": 5,
-        "text": "Reviewer struggles to fit card into case, pushes hard against the slot",
-        "metadata": VideoChunkMetadata(
-            video_id="video_B",
-            video_title="RTX 5090 Unboxing",
-            creator_id="tech_reviewer_99",
-            upload_date="2025-02-20",
-            start_time=20.0,
-            end_time=30.0,
-            chunk_type="narrative_action",
-            action_verb="struggling"
-        ).model_dump()
-    },
-    {
-        "id": 6,
-        "text": "This thing is absolutely massive, barely fits in my case",
-        "metadata": VideoChunkMetadata(
-            video_id="video_B",
-            video_title="RTX 5090 Unboxing",
-            creator_id="tech_reviewer_99",
-            upload_date="2025-02-20",
-            start_time=25.0,
-            end_time=25.0,
-            chunk_type="transcript",
-            speaker_name="Reviewer"
-        ).model_dump()
-    },
+class RetrievalFilters(BaseModel):
+    """Filters to apply during retrieval."""
+    category: Optional[str] = None
+    time_horizon: Optional[str] = None
+    creator_ids: List[str] = Field(default_factory=list)
+    video_ids: List[str] = Field(default_factory=list)
+    language: str = "en"
 
-    # Video C (Fashion): "Summer Haul 2025"
-    {
-        "id": 7,
-        "text": "Zara logo on clothing tag visible in frame",
-        "metadata": VideoChunkMetadata(
-            video_id="video_C",
-            video_title="Summer Haul 2025",
-            creator_id="fashion_influencer",
-            upload_date="2025-03-10",
-            start_time=50.0,
-            end_time=50.0,
-            chunk_type="visual_frame",
-            visual_objects=["Zara logo", "clothing tag"],
-            visual_text_ocr="Zara"
-        ).model_dump()
-    },
-    {
-        "id": 8,
-        "text": "Creator does a 360 spin to show the skirt flow and movement",
-        "metadata": VideoChunkMetadata(
-            video_id="video_C",
-            video_title="Summer Haul 2025",
-            creator_id="fashion_influencer",
-            upload_date="2025-03-10",
-            start_time=50.0,
-            end_time=60.0,
-            chunk_type="narrative_action",
-            action_verb="spinning"
-        ).model_dump()
-    },
-    {
-        "id": 9,
-        "text": "It feels a bit cheaper than I expected for the price",
-        "metadata": VideoChunkMetadata(
-            video_id="video_C",
-            video_title="Summer Haul 2025",
-            creator_id="fashion_influencer",
-            upload_date="2025-03-10",
-            start_time=55.0,
-            end_time=55.0,
-            chunk_type="transcript",
-            speaker_name="Creator"
-        ).model_dump()
-    },
-]
+
+class RetrievalPlanOutput(BaseModel):
+    """Structured output for retrieval planning."""
+    primary_sources: List[Literal["narrative", "transcript", "image"]]
+    secondary_sources: List[Literal["narrative", "transcript", "image"]]
+    n_results_per_source: int = 40
+    filters: RetrievalFilters
+    query_variants: List[QueryVariant]
+    aggregation_strategy: str = "group_by_video_then_segment"
+    max_total_hits: int = 200
+
+
+class CriticOutput(BaseModel):
+    """Structured output for answer criticism."""
+    is_satisfactory: bool
+    reasons: List[str]
+    should_retry_retrieval: bool
+    suggested_retrieval_adjustments: Dict[str, Any] = Field(default_factory=dict)
 
 
 # =============================================================================
-# Qdrant Setup and Data Ingestion
+# Part 3: Mock Data Setup
 # =============================================================================
 
-def setup_qdrant_collections(client: QdrantClient, embeddings: OpenAIEmbeddings):
+# Comprehensive mock data with all three index types
+MOCK_DATA = {
+    "narrative": [
+        # Video A - Cooking
+        {
+            "id": 1,
+            "text": "Chef aggressively smashes wagyu beef patty onto hot cast iron skillet, creating sizzle and smoke",
+            "video_id": "video_A",
+            "video_title": "Gordon Ramsay Style Burger",
+            "creator_id": "chef_gordon_fan",
+            "category": "cooking",
+            "start_s": 10.0,
+            "end_s": 20.0,
+            "views": 1500000,
+            "likes": 89000,
+            "upload_date": "2025-01-15"
+        },
+        {
+            "id": 2,
+            "text": "Chef seasons patty from height letting salt crystals fall evenly across the surface",
+            "video_id": "video_A",
+            "video_title": "Gordon Ramsay Style Burger",
+            "creator_id": "chef_gordon_fan",
+            "category": "cooking",
+            "start_s": 20.0,
+            "end_s": 30.0,
+            "views": 1500000,
+            "likes": 89000,
+            "upload_date": "2025-01-15"
+        },
+        # Video B - Tech
+        {
+            "id": 3,
+            "text": "Reviewer struggles to fit massive graphics card into case, pushing hard against PCIe slot",
+            "video_id": "video_B",
+            "video_title": "RTX 5090 Unboxing",
+            "creator_id": "tech_reviewer_99",
+            "category": "tech",
+            "start_s": 20.0,
+            "end_s": 30.0,
+            "views": 2300000,
+            "likes": 156000,
+            "upload_date": "2025-02-20"
+        },
+        {
+            "id": 4,
+            "text": "Reviewer carefully removes GPU from anti-static bag and inspects the triple fan cooler",
+            "video_id": "video_B",
+            "video_title": "RTX 5090 Unboxing",
+            "creator_id": "tech_reviewer_99",
+            "category": "tech",
+            "start_s": 5.0,
+            "end_s": 15.0,
+            "views": 2300000,
+            "likes": 156000,
+            "upload_date": "2025-02-20"
+        },
+        # Video C - Fashion
+        {
+            "id": 5,
+            "text": "Creator does slow 360 spin to show skirt flow and movement of fabric",
+            "video_id": "video_C",
+            "video_title": "Summer Haul 2025",
+            "creator_id": "fashion_influencer",
+            "category": "fashion",
+            "start_s": 50.0,
+            "end_s": 60.0,
+            "views": 890000,
+            "likes": 67000,
+            "upload_date": "2025-03-10"
+        },
+        # Video D - Fitness
+        {
+            "id": 6,
+            "text": "Trainer demonstrates proper squat form with barbell, keeping back straight and knees tracking over toes",
+            "video_id": "video_D",
+            "video_title": "Perfect Squat Form",
+            "creator_id": "fitness_coach",
+            "category": "fitness",
+            "start_s": 15.0,
+            "end_s": 25.0,
+            "views": 3200000,
+            "likes": 245000,
+            "upload_date": "2025-02-28"
+        },
+    ],
+    "transcript": [
+        # Video A - Cooking
+        {
+            "id": 101,
+            "text": "Always season from a height, this gives you even distribution across the entire patty",
+            "video_id": "video_A",
+            "video_title": "Gordon Ramsay Style Burger",
+            "creator_id": "chef_gordon_fan",
+            "category": "cooking",
+            "start_s": 12.0,
+            "end_s": 16.0,
+            "speaker": "Chef",
+            "views": 1500000,
+            "likes": 89000,
+            "upload_date": "2025-01-15"
+        },
+        {
+            "id": 102,
+            "text": "The key to a good smash burger is getting that cast iron absolutely screaming hot",
+            "video_id": "video_A",
+            "video_title": "Gordon Ramsay Style Burger",
+            "creator_id": "chef_gordon_fan",
+            "category": "cooking",
+            "start_s": 5.0,
+            "end_s": 9.0,
+            "speaker": "Chef",
+            "views": 1500000,
+            "likes": 89000,
+            "upload_date": "2025-01-15"
+        },
+        # Video B - Tech
+        {
+            "id": 103,
+            "text": "This thing is absolutely massive, I'm genuinely worried it won't fit in my case",
+            "video_id": "video_B",
+            "video_title": "RTX 5090 Unboxing",
+            "creator_id": "tech_reviewer_99",
+            "category": "tech",
+            "start_s": 25.0,
+            "end_s": 29.0,
+            "speaker": "Reviewer",
+            "views": 2300000,
+            "likes": 156000,
+            "upload_date": "2025-02-20"
+        },
+        {
+            "id": 104,
+            "text": "128 gigabytes of VRAM, that's just insane for a consumer card",
+            "video_id": "video_B",
+            "video_title": "RTX 5090 Unboxing",
+            "creator_id": "tech_reviewer_99",
+            "category": "tech",
+            "start_s": 8.0,
+            "end_s": 12.0,
+            "speaker": "Reviewer",
+            "views": 2300000,
+            "likes": 156000,
+            "upload_date": "2025-02-20"
+        },
+        # Video C - Fashion
+        {
+            "id": 105,
+            "text": "It feels a bit cheaper than I expected for a Zara piece at this price point",
+            "video_id": "video_C",
+            "video_title": "Summer Haul 2025",
+            "creator_id": "fashion_influencer",
+            "category": "fashion",
+            "start_s": 55.0,
+            "end_s": 59.0,
+            "speaker": "Creator",
+            "views": 890000,
+            "likes": 67000,
+            "upload_date": "2025-03-10"
+        },
+        # Video D - Fitness
+        {
+            "id": 106,
+            "text": "Keep your core tight and your chest up, don't let those knees cave inward",
+            "video_id": "video_D",
+            "video_title": "Perfect Squat Form",
+            "creator_id": "fitness_coach",
+            "category": "fitness",
+            "start_s": 18.0,
+            "end_s": 22.0,
+            "speaker": "Trainer",
+            "views": 3200000,
+            "likes": 245000,
+            "upload_date": "2025-02-28"
+        },
+    ],
+    "image": [
+        # Video A - Cooking
+        {
+            "id": 201,
+            "text": "Close-up of premium Wagyu beef label on black packaging with gold lettering",
+            "video_id": "video_A",
+            "video_title": "Gordon Ramsay Style Burger",
+            "creator_id": "chef_gordon_fan",
+            "category": "cooking",
+            "start_s": 10.0,
+            "end_s": 10.0,
+            "visual_objects": ["Wagyu label", "beef packaging"],
+            "ocr_text": "A5 Wagyu Premium",
+            "views": 1500000,
+            "likes": 89000,
+            "upload_date": "2025-01-15"
+        },
+        # Video B - Tech
+        {
+            "id": 202,
+            "text": "RTX 5090 retail box showing 128GB VRAM specification in large white text on green accent",
+            "video_id": "video_B",
+            "video_title": "RTX 5090 Unboxing",
+            "creator_id": "tech_reviewer_99",
+            "category": "tech",
+            "start_s": 5.0,
+            "end_s": 5.0,
+            "visual_objects": ["RTX 5090 box", "NVIDIA logo"],
+            "ocr_text": "128GB VRAM",
+            "views": 2300000,
+            "likes": 156000,
+            "upload_date": "2025-02-20"
+        },
+        {
+            "id": 203,
+            "text": "Massive triple-fan GPU barely fitting into mid-tower case, cables strained",
+            "video_id": "video_B",
+            "video_title": "RTX 5090 Unboxing",
+            "creator_id": "tech_reviewer_99",
+            "category": "tech",
+            "start_s": 25.0,
+            "end_s": 25.0,
+            "visual_objects": ["graphics card", "PC case", "cables"],
+            "ocr_text": "",
+            "views": 2300000,
+            "likes": 156000,
+            "upload_date": "2025-02-20"
+        },
+        # Video C - Fashion
+        {
+            "id": 204,
+            "text": "Zara brand tag visible on cream-colored flowing midi skirt",
+            "video_id": "video_C",
+            "video_title": "Summer Haul 2025",
+            "creator_id": "fashion_influencer",
+            "category": "fashion",
+            "start_s": 50.0,
+            "end_s": 50.0,
+            "visual_objects": ["Zara tag", "skirt", "clothing label"],
+            "ocr_text": "ZARA",
+            "views": 890000,
+            "likes": 67000,
+            "upload_date": "2025-03-10"
+        },
+        # Video D - Fitness
+        {
+            "id": 205,
+            "text": "Side view of trainer in squat position with Olympic barbell, gym environment with mirrors",
+            "video_id": "video_D",
+            "video_title": "Perfect Squat Form",
+            "creator_id": "fitness_coach",
+            "category": "fitness",
+            "start_s": 20.0,
+            "end_s": 20.0,
+            "visual_objects": ["barbell", "squat rack", "gym mirrors"],
+            "ocr_text": "",
+            "views": 3200000,
+            "likes": 245000,
+            "upload_date": "2025-02-28"
+        },
+    ]
+}
+
+
+# =============================================================================
+# Part 4: Qdrant Setup
+# =============================================================================
+
+def setup_qdrant(client: QdrantClient, embeddings: OpenAIEmbeddings):
     """Set up Qdrant collections and ingest mock data."""
 
-    # Create collections for each chunk type
-    collections = ["visual_frames", "narrative_actions", "transcripts"]
+    collections = ["narrative", "transcript", "image"]
 
     for collection_name in collections:
-        # Delete if exists
         try:
             client.delete_collection(collection_name)
         except Exception:
             pass
 
-        # Create collection with OpenAI embedding dimension (1536 for text-embedding-ada-002)
         client.create_collection(
             collection_name=collection_name,
             vectors_config=VectorParams(size=1536, distance=Distance.COSINE)
         )
 
-    # Separate data by chunk type
-    visual_data = [d for d in MOCK_VIDEO_DATA if d["metadata"]["chunk_type"] == "visual_frame"]
-    narrative_data = [d for d in MOCK_VIDEO_DATA if d["metadata"]["chunk_type"] == "narrative_action"]
-    transcript_data = [d for d in MOCK_VIDEO_DATA if d["metadata"]["chunk_type"] == "transcript"]
-
-    # Ingest data into respective collections
-    def ingest_to_collection(collection_name: str, data: list):
+    # Ingest data
+    for collection_name in collections:
+        data = MOCK_DATA[collection_name]
         if not data:
-            return
+            continue
 
         texts = [d["text"] for d in data]
         vectors = embeddings.embed_documents(texts)
@@ -281,315 +490,698 @@ def setup_qdrant_collections(client: QdrantClient, embeddings: OpenAIEmbeddings)
             PointStruct(
                 id=d["id"],
                 vector=vector,
-                payload={"text": d["text"], **d["metadata"]}
+                payload={k: v for k, v in d.items() if k != "id"}
             )
             for d, vector in zip(data, vectors)
         ]
 
         client.upsert(collection_name=collection_name, points=points)
 
-    ingest_to_collection("visual_frames", visual_data)
-    ingest_to_collection("narrative_actions", narrative_data)
-    ingest_to_collection("transcripts", transcript_data)
-
     return client
 
 
 # =============================================================================
-# Node Functions
+# Part 5: Search Functions (RAG Tools)
 # =============================================================================
 
-def create_router_node(llm: ChatOpenAI):
-    """Create the router node that classifies user intent."""
+def search_index(
+    client: QdrantClient,
+    embeddings: OpenAIEmbeddings,
+    collection_name: str,
+    query: str,
+    top_k: int = 40,
+    filters: Optional[Dict[str, Any]] = None
+) -> List[RetrievalHit]:
+    """Generic search function for any collection."""
 
-    # Create structured LLM for routing
-    structured_llm = llm.with_structured_output(RouterOutput)
+    query_vector = embeddings.embed_query(query)
 
-    def router_node(state: AgentState) -> dict:
-        """Route the query to appropriate retrieval strategy."""
+    results = client.search(
+        collection_name=collection_name,
+        query_vector=query_vector,
+        limit=top_k
+    )
 
-        system_prompt = """You are a query router for AskGVT, a video-first search engine.
+    hits: List[RetrievalHit] = []
+    for result in results:
+        payload = result.payload or {}
+        hit: RetrievalHit = {
+            "source": cast(Literal["narrative", "transcript", "image"], collection_name),
+            "video_id": payload.get("video_id", "unknown"),
+            "start_s": payload.get("start_s", 0.0),
+            "end_s": payload.get("end_s", 0.0),
+            "score": result.score,
+            "text": payload.get("text", ""),
+            "metadata": {k: v for k, v in payload.items() if k not in ["text", "video_id", "start_s", "end_s"]}
+        }
+        hits.append(hit)
 
-Classify the user's query into one of these intents:
+    return hits
 
-1. frame_lookup: For queries about visual elements
-   - Keywords: "Logo", "Text on screen", "Color", "Visible product", "Brand", "label", "shows"
 
-2. narrative_sequence: For queries about actions and sequences
-   - Keywords: "What happens", "happens when", "Steps to", "Movement", "Action", "Pose", "Gesture", "tries to", "install", "fit"
+# =============================================================================
+# Part 6: Node Functions
+# =============================================================================
 
-3. verbal_fact: For queries about spoken content
-   - Keywords: "Did they mention", "Quote", "Say", "said", "mentioned"
+def normalize_question(state: AskGVTState) -> dict:
+    """Normalize the user query."""
+    state["normalized_query"] = state["user_query"].strip()
+    return {"normalized_query": state["normalized_query"]}
 
-4. comprehensive_trend: For broad trend queries
-   - Keywords: "Trending", "Most popular", "Common", "typical"
 
-Also extract any date/time filters from the query if present.
+def create_classify_query_node(llm: ChatOpenAI):
+    """Create the query classification node."""
 
-Current date for reference: {current_date}
-"""
+    structured_llm = llm.with_structured_output(ClassificationOutput)
+
+    def classify_query_node(state: AskGVTState) -> dict:
+        system_prompt = """You are the Query Classifier for AskGVT, a visual search system over millions of social videos.
+
+You receive ONE user question. You must return a JSON object with fields:
+
+- category: One of the known categories:
+  DIY, PC building, appliances, art/crafts, auto detailing, beauty, coffee,
+  cooking, creator_analytics, dance, education, enterprise brand/compliance,
+  fashion, fitness, gaming, gardening, home cleaning, music gear, parenting,
+  pets, photography, small business packaging, sports, stationery/desk setups,
+  thrifting, travel, tutorial, yoga, tech, or "other".
+
+- capability: One of:
+  temporal_reasoning, frame_detection, pose_detection, motion_analysis,
+  narrative_segmentation, audio_visual_alignment, creator_enterprise_analytics.
+
+- intent: One of:
+  trend, find, count, compare, explain, sequence, verify, correlate, detect_change.
+
+- evidence_required: Boolean.
+  true when the user clearly expects answers based on real video evidence,
+  video analytics, or specific clips.
+
+- difficulty: "easy" | "medium" | "hard".
+  Hard if the question requires multiple steps.
+
+- question_type: High-level intent bucket: trend, how_to, comparison, analytics,
+  factoid, content_search, moderation, other.
+
+- needs_visual_evidence: Boolean indicating if the answer should primarily come from
+  the AskGVT video corpus rather than generic LLM knowledge.
+
+- needs_freshness: Boolean. True when the user cares about "this week", "recent", etc.
+
+- time_horizon: this_week | last_month | last_year | all_time | unspecified.
+
+- strict_askgvt_only: true if the question explicitly constrains to this video corpus.
+
+- explicit_video_ids: array of video IDs if mentioned in the query.
+
+If you are unsure, still choose the closest option."""
 
         messages = [
-            {"role": "system", "content": system_prompt.format(current_date=state.get("current_date", "2025-01-01"))},
-            {"role": "user", "content": state["user_query"]}
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": state.get("normalized_query", state["user_query"])}
         ]
 
         result = structured_llm.invoke(messages)
 
         return {
+            "category": result.category,
+            "capability": result.capability,
             "intent": result.intent,
-            "time_filter": result.time_filter
+            "evidence_required": result.evidence_required,
+            "difficulty": result.difficulty,
+            "question_type": result.question_type,
+            "needs_visual_evidence": result.needs_visual_evidence,
+            "needs_freshness": result.needs_freshness,
+            "time_horizon": result.time_horizon,
+            "strict_askgvt_only": result.strict_askgvt_only,
+            "explicit_video_ids": result.explicit_video_ids
         }
 
-    return router_node
+    return classify_query_node
 
 
-def create_retriever_functions(client: QdrantClient, embeddings: OpenAIEmbeddings):
-    """Create retriever functions for each collection."""
+def create_plan_retrieval_node(llm: ChatOpenAI):
+    """Create the retrieval planning node."""
 
-    def retrieve_from_collection(collection_name: str, query: str, top_k: int = 3) -> List[Document]:
-        """Generic retrieval function for a collection."""
-        query_vector = embeddings.embed_query(query)
+    structured_llm = llm.with_structured_output(RetrievalPlanOutput)
 
-        results = client.search(
-            collection_name=collection_name,
-            query_vector=query_vector,
-            limit=top_k
-        )
+    def plan_retrieval_node(state: AskGVTState) -> dict:
+        system_prompt = """You are the Retrieval Planner for AskGVT.
 
-        documents = []
-        for result in results:
-            doc = Document(
-                page_content=result.payload.get("text", ""),
-                metadata={k: v for k, v in result.payload.items() if k != "text"}
-            )
-            doc.metadata["score"] = result.score
-            documents.append(doc)
+You know AskGVT has 3 semantic indexes:
+- narrative: time-aligned descriptions of actions, movement, and behaviour (10s windows).
+- transcript: ASR + creator speech, product names, subjective statements.
+- image: keyframe visual captions (logos, packaging, aesthetics, scene style).
 
-        return documents
+Your job: given the user query and classification, choose:
+- which sources to call (primary vs secondary),
+- how many results to retrieve,
+- which filters to apply,
+- specific query strings adapted to each source.
 
-    def visual_retriever(state: AgentState) -> dict:
-        """Retrieve from visual frames collection."""
-        docs = retrieve_from_collection("visual_frames", state["user_query"])
-        return {"visual_hits": docs}
+Guidelines:
+- How-to / "what do people do" → primary: NARRATIVE; secondary: TRANSCRIPT and IMAGE.
+- Product / brand / ratings → primary: TRANSCRIPT; secondary: NARRATIVE and IMAGE.
+- Visual aesthetics / layouts → primary: IMAGE; secondary: NARRATIVE.
+- Trends → apply time filters and sort by engagement.
+- Analytics → favour sources that carry the relevant signal.
 
-    def narrative_retriever(state: AgentState) -> dict:
-        """Retrieve from narrative actions collection."""
-        docs = retrieve_from_collection("narrative_actions", state["user_query"])
-        return {"narrative_hits": docs}
+The queries should be tailored to each target:
+- narrative: describe actions, movements, and outcomes.
+- transcript: emphasise keywords and phrases in speech.
+- image: describe visual appearance, logos, and aesthetics.
 
-    def transcript_retriever(state: AgentState) -> dict:
-        """Retrieve from transcripts collection."""
-        docs = retrieve_from_collection("transcripts", state["user_query"])
-        return {"transcript_hits": docs}
+Return the retrieval plan JSON."""
 
-    def all_retriever(state: AgentState) -> dict:
-        """Retrieve from all collections for comprehensive queries."""
-        visual = retrieve_from_collection("visual_frames", state["user_query"])
-        narrative = retrieve_from_collection("narrative_actions", state["user_query"])
-        transcript = retrieve_from_collection("transcripts", state["user_query"])
+        classification_context = f"""
+User Query: {state.get("normalized_query", state["user_query"])}
 
-        return {
-            "visual_hits": visual,
-            "narrative_hits": narrative,
-            "transcript_hits": transcript
-        }
-
-    return visual_retriever, narrative_retriever, transcript_retriever, all_retriever
-
-
-def create_generator_node(llm: ChatOpenAI):
-    """Create the generator node that produces the final response."""
-
-    def generator_node(state: AgentState) -> dict:
-        """Generate final answer with citations."""
-
-        system_prompt = """You are AskGVT. You are NOT a generic AI.
-
-Source Knowledge Rule: You must prioritize the retrieved video content over your internal training.
-- Internal Knowledge: 'Normally, you put thermal paste on the CPU.'
-- Source Knowledge (Video B): 'User put thermal paste on the socket pins.'
-- Your Output: 'In this video, the user incorrectly applies paste to the socket pins.'
-
-Evidence Rule: You cannot make a claim without a receipt. If you say the user is struggling, you must reference the narrative chunk with its timestamp.
-
-Synthesis: Combining visual cues (Visual Frame) with actions (Narrative) is your superpower. If the visual shows a brand, and the narrative shows it breaking, mention both.
-
-Based on the retrieved content, provide a helpful answer to the user's query. Always cite specific timestamps and video sources."""
-
-        # Compile retrieved content
-        context_parts = []
-        all_docs = []
-
-        visual_hits = state.get("visual_hits", [])
-        narrative_hits = state.get("narrative_hits", [])
-        transcript_hits = state.get("transcript_hits", [])
-
-        if visual_hits:
-            context_parts.append("=== Visual Frame Content ===")
-            for doc in visual_hits:
-                context_parts.append(f"[{doc.metadata.get('video_title')} @ {doc.metadata.get('start_time')}s]: {doc.page_content}")
-                all_docs.append(doc)
-
-        if narrative_hits:
-            context_parts.append("\n=== Narrative Action Content ===")
-            for doc in narrative_hits:
-                context_parts.append(f"[{doc.metadata.get('video_title')} @ {doc.metadata.get('start_time')}-{doc.metadata.get('end_time')}s]: {doc.page_content}")
-                all_docs.append(doc)
-
-        if transcript_hits:
-            context_parts.append("\n=== Transcript Content ===")
-            for doc in transcript_hits:
-                speaker = doc.metadata.get('speaker_name', 'Unknown')
-                context_parts.append(f"[{doc.metadata.get('video_title')} @ {doc.metadata.get('start_time')}s - {speaker}]: {doc.page_content}")
-                all_docs.append(doc)
-
-        context = "\n".join(context_parts)
-
-        if not context.strip():
-            context = "No relevant content found in the video database."
+Classification:
+- Category: {state.get("category", "unknown")}
+- Capability: {state.get("capability", "unknown")}
+- Intent: {state.get("intent", "unknown")}
+- Needs Visual Evidence: {state.get("needs_visual_evidence", True)}
+- Needs Freshness: {state.get("needs_freshness", False)}
+- Time Horizon: {state.get("time_horizon", "unspecified")}
+- Strict AskGVT Only: {state.get("strict_askgvt_only", False)}
+- Explicit Video IDs: {state.get("explicit_video_ids", [])}
+"""
 
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"""User Query: {state["user_query"]}
+            {"role": "user", "content": classification_context}
+        ]
 
-Retrieved Video Content:
-{context}
+        result = structured_llm.invoke(messages)
 
-Provide a helpful answer based on the retrieved content. Be specific about what happens in the videos and cite timestamps."""}
+        return {
+            "retrieval_plan": {
+                "primary_sources": result.primary_sources,
+                "secondary_sources": result.secondary_sources,
+                "n_results_per_source": result.n_results_per_source,
+                "filters": result.filters.model_dump(),
+                "query_variants": [qv.model_dump() for qv in result.query_variants],
+                "aggregation_strategy": result.aggregation_strategy,
+                "max_total_hits": result.max_total_hits
+            }
+        }
+
+    return plan_retrieval_node
+
+
+def create_search_nodes(client: QdrantClient, embeddings: OpenAIEmbeddings):
+    """Create search nodes for all three indexes."""
+
+    def search_narrative_node(state: AskGVTState) -> dict:
+        plan = state.get("retrieval_plan", {})
+        queries = [q for q in plan.get("query_variants", []) if q["target"] == "narrative"]
+
+        hits: List[RetrievalHit] = []
+        for q in queries:
+            results = search_index(
+                client, embeddings, "narrative",
+                q["query"],
+                top_k=plan.get("n_results_per_source", 40),
+                filters=plan.get("filters", {})
+            )
+            hits.extend(results)
+
+        return {"narrative_hits": hits}
+
+    def search_transcript_node(state: AskGVTState) -> dict:
+        plan = state.get("retrieval_plan", {})
+        queries = [q for q in plan.get("query_variants", []) if q["target"] == "transcript"]
+
+        hits: List[RetrievalHit] = []
+        for q in queries:
+            results = search_index(
+                client, embeddings, "transcript",
+                q["query"],
+                top_k=plan.get("n_results_per_source", 40),
+                filters=plan.get("filters", {})
+            )
+            hits.extend(results)
+
+        return {"transcript_hits": hits}
+
+    def search_image_node(state: AskGVTState) -> dict:
+        plan = state.get("retrieval_plan", {})
+        queries = [q for q in plan.get("query_variants", []) if q["target"] == "image"]
+
+        hits: List[RetrievalHit] = []
+        for q in queries:
+            results = search_index(
+                client, embeddings, "image",
+                q["query"],
+                top_k=plan.get("n_results_per_source", 40),
+                filters=plan.get("filters", {})
+            )
+            hits.extend(results)
+
+        return {"image_hits": hits}
+
+    return search_narrative_node, search_transcript_node, search_image_node
+
+
+def create_fuse_evidence_node(llm: ChatOpenAI):
+    """Create the evidence fusion node."""
+
+    def fuse_evidence_node(state: AskGVTState) -> dict:
+        narrative_hits = state.get("narrative_hits", [])
+        transcript_hits = state.get("transcript_hits", [])
+        image_hits = state.get("image_hits", [])
+
+        # Group by (video_id, 10s window)
+        segments: Dict[str, Dict[str, Any]] = {}
+
+        for hit in narrative_hits + transcript_hits + image_hits:
+            video_id = hit["video_id"]
+            window_start = floor(hit["start_s"] / 10) * 10
+            key = f"{video_id}_{window_start}"
+
+            if key not in segments:
+                segments[key] = {
+                    "video_id": video_id,
+                    "start_s": window_start,
+                    "end_s": window_start + 10,
+                    "narrative_snippets": [],
+                    "transcript_snippets": [],
+                    "image_snippets": [],
+                    "scores": [],
+                    "metadata": hit["metadata"]
+                }
+
+            segments[key]["scores"].append(hit["score"])
+
+            if hit["source"] == "narrative":
+                segments[key]["narrative_snippets"].append(hit["text"])
+            elif hit["source"] == "transcript":
+                segments[key]["transcript_snippets"].append(hit["text"])
+            elif hit["source"] == "image":
+                segments[key]["image_snippets"].append(hit["text"])
+
+        # Calculate combined scores
+        for seg in segments.values():
+            seg["combined_score"] = sum(seg["scores"]) / len(seg["scores"]) if seg["scores"] else 0
+            del seg["scores"]
+
+        # Convert to list and sort by score
+        segment_list = sorted(segments.values(), key=lambda x: x["combined_score"], reverse=True)
+
+        # Get unique videos and categories
+        unique_videos = set(seg["video_id"] for seg in segment_list)
+        categories = list(set(
+            seg["metadata"].get("category", "unknown")
+            for seg in segment_list
+            if seg.get("metadata")
+        ))
+
+        # Use LLM to analyze patterns if we have enough data
+        if segment_list:
+            segment_summaries = []
+            for seg in segment_list[:10]:  # Top 10 segments
+                summary = f"Video {seg['video_id']} ({seg['start_s']}-{seg['end_s']}s): "
+                if seg["narrative_snippets"]:
+                    summary += f"Actions: {'; '.join(seg['narrative_snippets'][:2])}. "
+                if seg["transcript_snippets"]:
+                    summary += f"Said: {'; '.join(seg['transcript_snippets'][:2])}. "
+                if seg["image_snippets"]:
+                    summary += f"Visual: {'; '.join(seg['image_snippets'][:2])}."
+                segment_summaries.append(summary)
+
+            analysis_prompt = f"""Analyze these video segments and identify:
+1. Key patterns (what do creators commonly do?)
+2. Any disagreements or variations
+3. Limitations of this evidence
+
+Segments:
+{chr(10).join(segment_summaries)}
+
+Return a brief analysis with key_patterns, disagreements, and limitations as bullet points."""
+
+            response = llm.invoke([{"role": "user", "content": analysis_prompt}])
+            analysis_text = response.content
+
+            # Parse simple patterns from response
+            key_patterns = []
+            disagreements = []
+            limitations = []
+
+            current_section = None
+            for line in analysis_text.split('\n'):
+                line = line.strip()
+                if 'pattern' in line.lower():
+                    current_section = 'patterns'
+                elif 'disagreement' in line.lower() or 'variation' in line.lower():
+                    current_section = 'disagreements'
+                elif 'limitation' in line.lower():
+                    current_section = 'limitations'
+                elif line.startswith('-') or line.startswith('*'):
+                    item = line.lstrip('-* ').strip()
+                    if current_section == 'patterns':
+                        key_patterns.append(item)
+                    elif current_section == 'disagreements':
+                        disagreements.append(item)
+                    elif current_section == 'limitations':
+                        limitations.append(item)
+        else:
+            key_patterns = []
+            disagreements = []
+            limitations = ["No evidence found in the corpus"]
+
+        fused: FusedEvidence = {
+            "num_videos": len(unique_videos),
+            "num_segments": len(segment_list),
+            "categories": categories,
+            "time_horizon": state.get("time_horizon", "unspecified"),
+            "key_patterns": key_patterns[:5],
+            "disagreements": disagreements[:3],
+            "limitations": limitations[:3] if limitations else ["Limited sample size"],
+            "segments": [
+                {
+                    "video_id": seg["video_id"],
+                    "start_s": seg["start_s"],
+                    "end_s": seg["end_s"],
+                    "summary": "; ".join(
+                        seg["narrative_snippets"][:1] +
+                        seg["transcript_snippets"][:1] +
+                        seg["image_snippets"][:1]
+                    ),
+                    "score": seg["combined_score"],
+                    "metadata": seg["metadata"]
+                }
+                for seg in segment_list[:20]
+            ]
+        }
+
+        return {"fused_evidence": fused}
+
+    return fuse_evidence_node
+
+
+def create_background_answer_node(llm: ChatOpenAI):
+    """Create the background answer node."""
+
+    def background_answer_node(state: AskGVTState) -> dict:
+        system_prompt = """You are the Background Explainer for AskGVT.
+
+Task:
+- Answer from your general knowledge.
+- DO NOT claim anything about specific AskGVT videos or creators.
+- Focus on definitions, theory, general best practices, and likely reasons.
+
+Return a concise but clear answer in natural language."""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": state["user_query"]}
+        ]
+
+        response = llm.invoke(messages)
+        return {"background_answer": response.content}
+
+    return background_answer_node
+
+
+def create_generate_answer_node(llm: ChatOpenAI):
+    """Create the final answer generation node."""
+
+    def generate_answer_node(state: AskGVTState) -> dict:
+        system_prompt = """You are AskGVT, the visual search assistant that answers questions
+by analysing millions of social videos.
+
+You are given:
+1. The user's question.
+2. (Optional) A background answer from general knowledge.
+3. (Optional) Fused video evidence summarising what actually happens in
+   the AskGVT video corpus: patterns, segments, and limitations.
+
+Your task:
+- If fused evidence is available and coverage is not "none":
+  - Ground your answer primarily in that evidence.
+  - Use background knowledge only for definitions or hypotheses.
+- If fused evidence is weak or missing:
+  - Use background answer, but clearly flag that you have limited video evidence.
+
+When citing evidence:
+- Refer to patterns, counts, and example clips.
+- Choose 3-10 representative segments as evidence_clips.
+
+Rules:
+- Prefer honesty over hallucination.
+- If patterns disagree across videos, explain the variation.
+- Keep the answer user-friendly and evidence-based."""
+
+        # Compile context
+        fused = state.get("fused_evidence")
+        background = state.get("background_answer", "")
+
+        evidence_context = ""
+        if fused and fused.get("num_segments", 0) > 0:
+            evidence_context = f"""
+Fused Evidence Summary:
+- Videos analyzed: {fused['num_videos']}
+- Segments found: {fused['num_segments']}
+- Categories: {', '.join(fused['categories'])}
+
+Key Patterns:
+{chr(10).join('- ' + p for p in fused['key_patterns'])}
+
+Disagreements/Variations:
+{chr(10).join('- ' + d for d in fused['disagreements']) if fused['disagreements'] else '- None noted'}
+
+Limitations:
+{chr(10).join('- ' + l for l in fused['limitations'])}
+
+Top Segments:
+"""
+            for seg in fused.get("segments", [])[:10]:
+                evidence_context += f"\n[{seg['video_id']} @ {seg['start_s']}-{seg['end_s']}s]: {seg['summary']}"
+
+        user_content = f"""User Query: {state["user_query"]}
+
+Background Knowledge Answer:
+{background if background else "Not available"}
+
+{evidence_context if evidence_context else "No video evidence available."}
+
+Please provide a comprehensive answer grounded in the evidence above."""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
         ]
 
         response = llm.invoke(messages)
         answer_text = response.content
 
-        # Generate citations from retrieved documents
-        citations = []
-        seen_citations = set()
+        # Build evidence clips from fused segments
+        evidence_clips: List[EvidenceClip] = []
+        if fused:
+            for seg in fused.get("segments", [])[:5]:
+                clip: EvidenceClip = {
+                    "video_id": seg["video_id"],
+                    "start_s": seg["start_s"],
+                    "end_s": seg["end_s"],
+                    "reason": seg.get("summary", "Relevant to query")[:100],
+                    "score": seg.get("score", 0.5),
+                    "metadata": seg.get("metadata", {})
+                }
+                evidence_clips.append(clip)
 
-        for doc in all_docs:
-            video_id = doc.metadata.get("video_id", "unknown")
-            timestamp = doc.metadata.get("start_time", 0)
-            citation_key = f"{video_id}_{timestamp}"
+        # Determine sources used and coverage
+        used_sources: List[Literal["narrative", "transcript", "image", "llm_background"]] = []
+        if state.get("narrative_hits"):
+            used_sources.append("narrative")
+        if state.get("transcript_hits"):
+            used_sources.append("transcript")
+        if state.get("image_hits"):
+            used_sources.append("image")
+        if background:
+            used_sources.append("llm_background")
 
-            if citation_key not in seen_citations:
-                seen_citations.add(citation_key)
-
-                # Generate reason based on chunk type
-                chunk_type = doc.metadata.get("chunk_type", "unknown")
-                if chunk_type == "visual_frame":
-                    reason = f"Visual evidence: {doc.page_content[:50]}..."
-                elif chunk_type == "narrative_action":
-                    reason = f"Shows action: {doc.page_content[:50]}..."
-                else:
-                    reason = f"Verbal content: {doc.page_content[:50]}..."
-
-                citation = VideoCitation(
-                    video_id=video_id,
-                    timestamp=timestamp,
-                    reason=reason,
-                    thumbnail_url=f"http://askgvt.img/{video_id}/{timestamp}.jpg"
-                )
-                citations.append(citation)
-
-        # Calculate confidence based on retrieval scores
-        if all_docs:
-            avg_score = sum(doc.metadata.get("score", 0.5) for doc in all_docs) / len(all_docs)
-            confidence = min(avg_score, 1.0)
+        num_videos = fused.get("num_videos", 0) if fused else 0
+        if num_videos >= 3:
+            coverage: Literal["high", "medium", "low", "none"] = "high"
+        elif num_videos >= 1:
+            coverage = "medium"
+        elif evidence_clips:
+            coverage = "low"
         else:
-            confidence = 0.0
+            coverage = "none"
 
-        final_response = FinalResponse(
-            answer_text=answer_text,
-            citations=citations,
-            confidence_score=round(confidence, 2)
-        )
+        answer_metadata: AnswerMetadata = {
+            "used_sources": used_sources,
+            "num_videos_considered": num_videos,
+            "evidence_clips": evidence_clips,
+            "coverage": coverage,
+            "limitations": fused.get("limitations", []) if fused else ["No evidence retrieved"],
+            "critic": None
+        }
 
-        return {"final_answer": final_response, "is_relevant": len(citations) > 0}
+        return {
+            "final_answer": answer_text,
+            "answer_metadata": answer_metadata
+        }
 
-    return generator_node
+    return generate_answer_node
+
+
+def create_answer_critic_node(llm: ChatOpenAI):
+    """Create the answer critic node."""
+
+    structured_llm = llm.with_structured_output(CriticOutput)
+
+    def answer_critic_node(state: AskGVTState) -> dict:
+        system_prompt = """You are the Answer Critic for AskGVT.
+
+Your job:
+- Check if the answer is:
+  - grounded in the evidence (no obvious hallucinations about videos),
+  - addressing the full question,
+  - honest about limitations.
+
+Return your assessment."""
+
+        critic_context = f"""
+User Query: {state["user_query"]}
+
+Final Answer:
+{state.get("final_answer", "")}
+
+Answer Metadata:
+- Coverage: {state.get("answer_metadata", {}).get("coverage", "unknown")}
+- Videos Considered: {state.get("answer_metadata", {}).get("num_videos_considered", 0)}
+- Limitations: {state.get("answer_metadata", {}).get("limitations", [])}
+
+Evidence Summary:
+{json.dumps(state.get("fused_evidence", {}), indent=2, default=str)[:1000]}
+"""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": critic_context}
+        ]
+
+        result = structured_llm.invoke(messages)
+
+        # Update answer_metadata with critic result
+        current_metadata = state.get("answer_metadata", {})
+        current_metadata["critic"] = {
+            "is_satisfactory": result.is_satisfactory,
+            "reasons": result.reasons,
+            "should_retry_retrieval": result.should_retry_retrieval,
+            "suggested_retrieval_adjustments": result.suggested_retrieval_adjustments
+        }
+
+        return {"answer_metadata": current_metadata}
+
+    return answer_critic_node
 
 
 # =============================================================================
-# Graph Construction
+# Part 7: Graph Construction
 # =============================================================================
 
 def build_askgvt_graph(client: QdrantClient, embeddings: OpenAIEmbeddings, llm: ChatOpenAI):
     """Build the complete LangGraph for AskGVT."""
 
-    # Create nodes
-    router_node = create_router_node(llm)
-    visual_retriever, narrative_retriever, transcript_retriever, all_retriever = create_retriever_functions(client, embeddings)
-    generator_node = create_generator_node(llm)
+    # Create all nodes
+    classify_query_node = create_classify_query_node(llm)
+    plan_retrieval_node = create_plan_retrieval_node(llm)
+    search_narrative_node, search_transcript_node, search_image_node = create_search_nodes(client, embeddings)
+    fuse_evidence_node = create_fuse_evidence_node(llm)
+    background_answer_node = create_background_answer_node(llm)
+    generate_answer_node = create_generate_answer_node(llm)
+    answer_critic_node = create_answer_critic_node(llm)
 
-    # Create graph
-    workflow = StateGraph(AgentState)
+    # Build graph
+    builder = StateGraph(AskGVTState)
 
     # Add nodes
-    workflow.add_node("router", router_node)
-    workflow.add_node("visual_retriever", visual_retriever)
-    workflow.add_node("narrative_retriever", narrative_retriever)
-    workflow.add_node("transcript_retriever", transcript_retriever)
-    workflow.add_node("all_retriever", all_retriever)
-    workflow.add_node("generator", generator_node)
+    builder.add_node("normalize_question", normalize_question)
+    builder.add_node("classify_query", classify_query_node)
+    builder.add_node("plan_retrieval", plan_retrieval_node)
+    builder.add_node("search_narrative", search_narrative_node)
+    builder.add_node("search_transcript", search_transcript_node)
+    builder.add_node("search_image", search_image_node)
+    builder.add_node("fuse_evidence", fuse_evidence_node)
+    builder.add_node("background_answer", background_answer_node)
+    builder.add_node("generate_answer", generate_answer_node)
+    builder.add_node("answer_critic", answer_critic_node)
 
     # Set entry point
-    workflow.set_entry_point("router")
+    builder.set_entry_point("normalize_question")
 
-    # Define conditional routing
-    def route_by_intent(state: AgentState) -> str:
-        """Route to appropriate retriever based on intent."""
-        intent = state.get("intent", "comprehensive_trend")
+    # Add edges
+    builder.add_edge("normalize_question", "classify_query")
 
-        routing_map = {
-            "frame_lookup": "visual_retriever",
-            "narrative_sequence": "narrative_retriever",
-            "verbal_fact": "transcript_retriever",
-            "comprehensive_trend": "all_retriever"
-        }
+    # Conditional: needs corpus or background only
+    def needs_corpus(state: AskGVTState) -> str:
+        if not state.get("needs_visual_evidence") and not state.get("strict_askgvt_only"):
+            return "background_only"
+        return "askgvt"
 
-        return routing_map.get(intent, "all_retriever")
-
-    # Add conditional edges from router
-    workflow.add_conditional_edges(
-        "router",
-        route_by_intent,
+    builder.add_conditional_edges(
+        "classify_query",
+        needs_corpus,
         {
-            "visual_retriever": "visual_retriever",
-            "narrative_retriever": "narrative_retriever",
-            "transcript_retriever": "transcript_retriever",
-            "all_retriever": "all_retriever"
+            "background_only": "background_answer",
+            "askgvt": "plan_retrieval"
         }
     )
 
-    # Connect retrievers to generator
-    workflow.add_edge("visual_retriever", "generator")
-    workflow.add_edge("narrative_retriever", "generator")
-    workflow.add_edge("transcript_retriever", "generator")
-    workflow.add_edge("all_retriever", "generator")
+    # AskGVT branch: plan -> parallel searches -> fuse
+    builder.add_edge("plan_retrieval", "search_narrative")
+    builder.add_edge("plan_retrieval", "search_transcript")
+    builder.add_edge("plan_retrieval", "search_image")
 
-    # Connect generator to end
-    workflow.add_edge("generator", END)
+    # All searches lead to fusion (LangGraph handles parallel execution)
+    builder.add_edge("search_narrative", "fuse_evidence")
+    builder.add_edge("search_transcript", "fuse_evidence")
+    builder.add_edge("search_image", "fuse_evidence")
 
-    # Compile graph
-    return workflow.compile()
+    # Fusion -> background -> generate -> critic
+    builder.add_edge("fuse_evidence", "background_answer")
+    builder.add_edge("background_answer", "generate_answer")
+    builder.add_edge("generate_answer", "answer_critic")
+
+    # Critic decision: done or retry
+    def critic_decision(state: AskGVTState) -> str:
+        critic = (state.get("answer_metadata") or {}).get("critic") or {}
+        retry_count = state.get("retry_count", 0)
+
+        if critic.get("is_satisfactory", True):
+            return "done"
+        if critic.get("should_retry_retrieval", False) and retry_count < 1:
+            return "retry"
+        return "done"
+
+    builder.add_conditional_edges(
+        "answer_critic",
+        critic_decision,
+        {"done": END, "retry": "plan_retrieval"}
+    )
+
+    return builder.compile()
 
 
 # =============================================================================
-# Main Execution
+# Part 8: Main Execution
 # =============================================================================
 
 def main():
     """Main function to run the AskGVT agent."""
 
-    print("=" * 60)
-    print("AskGVT Retrieval Agent - Alpha Version")
-    print("=" * 60)
+    print("=" * 70)
+    print("AskGVT Retrieval Agent - Full Architecture")
+    print("=" * 70)
 
     # Check for API key
     if not os.getenv("OPENAI_API_KEY"):
-        print("\nWarning: OPENAI_API_KEY not set. Please set it to run the agent.")
-        print("Example: export OPENAI_API_KEY='your-key-here'")
-        return
+        print("\nError: OPENAI_API_KEY not set.")
+        print("Please set it: export OPENAI_API_KEY='your-key-here'")
+        return None
 
     # Initialize components
     print("\nInitializing components...")
@@ -598,79 +1190,112 @@ def main():
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     client = QdrantClient(location=":memory:")
 
-    # Setup Qdrant with mock data
+    # Setup Qdrant
     print("Setting up Qdrant collections and ingesting mock data...")
-    setup_qdrant_collections(client, embeddings)
+    setup_qdrant(client, embeddings)
 
-    # Build the graph
+    # Build graph
     print("Building LangGraph workflow...")
     graph = build_askgvt_graph(client, embeddings, llm)
 
     # Test query
     test_query = "What happens when the reviewer tries to install the graphics card?"
 
-    print("\n" + "=" * 60)
+    print("\n" + "=" * 70)
     print("Test Query:")
-    print(f"  \"{test_query}\"")
-    print("=" * 60)
+    print(f'  "{test_query}"')
+    print("=" * 70)
 
     # Initialize state
-    initial_state: AgentState = {
+    initial_state: AskGVTState = {
         "user_query": test_query,
-        "current_date": datetime.now().strftime("%Y-%m-%d"),
-        "intent": "comprehensive_trend",  # Will be overwritten by router
-        "time_filter": None,
-        "visual_hits": [],
+        "normalized_query": None,
+        "category": None,
+        "capability": None,
+        "intent": None,
+        "evidence_required": None,
+        "difficulty": None,
+        "question_type": None,
+        "needs_visual_evidence": None,
+        "needs_freshness": None,
+        "time_horizon": None,
+        "strict_askgvt_only": None,
+        "explicit_video_ids": [],
+        "retrieval_plan": None,
         "narrative_hits": [],
         "transcript_hits": [],
-        "is_relevant": False,
-        "final_answer": FinalResponse(
-            answer_text="",
-            citations=[],
-            confidence_score=0.0
-        )
+        "image_hits": [],
+        "fused_evidence": None,
+        "background_answer": None,
+        "final_answer": None,
+        "answer_metadata": None,
+        "retry_count": 0
     }
 
-    # Run the graph
-    print("\nRunning agent...")
+    # Run graph
+    print("\nRunning agent pipeline...")
     result = graph.invoke(initial_state)
 
     # Display results
-    print("\n" + "=" * 60)
-    print("Results:")
-    print("=" * 60)
+    print("\n" + "=" * 70)
+    print("CLASSIFICATION RESULTS")
+    print("=" * 70)
+    print(f"Category: {result.get('category')}")
+    print(f"Capability: {result.get('capability')}")
+    print(f"Intent: {result.get('intent')}")
+    print(f"Question Type: {result.get('question_type')}")
+    print(f"Needs Visual Evidence: {result.get('needs_visual_evidence')}")
+    print(f"Difficulty: {result.get('difficulty')}")
 
-    print(f"\nDetected Intent: {result['intent']}")
+    print("\n" + "=" * 70)
+    print("RETRIEVAL RESULTS")
+    print("=" * 70)
+    print(f"Narrative hits: {len(result.get('narrative_hits', []))}")
+    print(f"Transcript hits: {len(result.get('transcript_hits', []))}")
+    print(f"Image hits: {len(result.get('image_hits', []))}")
 
-    if result.get("time_filter"):
-        print(f"Time Filter: {result['time_filter']}")
+    fused = result.get("fused_evidence")
+    if fused:
+        print(f"\nFused Evidence:")
+        print(f"  Videos: {fused.get('num_videos')}")
+        print(f"  Segments: {fused.get('num_segments')}")
+        print(f"  Categories: {fused.get('categories')}")
+        if fused.get("key_patterns"):
+            print(f"  Key Patterns:")
+            for p in fused["key_patterns"][:3]:
+                print(f"    - {p}")
 
-    print(f"\nRetrieved Documents:")
-    print(f"  - Visual hits: {len(result.get('visual_hits', []))}")
-    print(f"  - Narrative hits: {len(result.get('narrative_hits', []))}")
-    print(f"  - Transcript hits: {len(result.get('transcript_hits', []))}")
+    print("\n" + "=" * 70)
+    print("FINAL ANSWER")
+    print("=" * 70)
+    print(f"\n{result.get('final_answer', 'No answer generated')}")
 
-    final_answer = result["final_answer"]
+    metadata = result.get("answer_metadata", {})
+    if metadata:
+        print("\n" + "=" * 70)
+        print("ANSWER METADATA")
+        print("=" * 70)
+        print(f"Coverage: {metadata.get('coverage')}")
+        print(f"Sources Used: {metadata.get('used_sources')}")
+        print(f"Videos Considered: {metadata.get('num_videos_considered')}")
 
-    print(f"\n{'=' * 60}")
-    print("Final Answer:")
-    print("=" * 60)
-    print(f"\n{final_answer.answer_text}")
+        clips = metadata.get("evidence_clips", [])
+        if clips:
+            print(f"\nEvidence Clips ({len(clips)}):")
+            for clip in clips[:5]:
+                print(f"  [{clip['video_id']} @ {clip['start_s']}-{clip['end_s']}s]")
+                print(f"    Reason: {clip['reason'][:80]}...")
 
-    print(f"\n{'=' * 60}")
-    print("Citations:")
-    print("=" * 60)
+        critic = metadata.get("critic", {})
+        if critic:
+            print(f"\nCritic Assessment:")
+            print(f"  Satisfactory: {critic.get('is_satisfactory')}")
+            if critic.get("reasons"):
+                for reason in critic["reasons"][:3]:
+                    print(f"    - {reason}")
 
-    for i, citation in enumerate(final_answer.citations, 1):
-        print(f"\n[{i}] Video: {citation.video_id}")
-        print(f"    Timestamp: {citation.timestamp}s")
-        print(f"    Reason: {citation.reason}")
-        print(f"    Thumbnail: {citation.thumbnail_url}")
+    print("\n" + "=" * 70)
 
-    print(f"\nConfidence Score: {final_answer.confidence_score}")
-    print(f"\n{'=' * 60}")
-
-    # Return the result for programmatic use
     return result
 
 
