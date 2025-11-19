@@ -55,6 +55,15 @@ You receive ONE user question. You must return a JSON object with fields:
 
 - explicit_video_ids: array of video IDs if mentioned in the query.
 
+- requires_deep_research: Boolean indicating if the question needs multi-step investigation.
+  Set to true when:
+  - The question has multiple distinct parts (e.g., "How do I X and what are the benefits?")
+  - It's a comparison across multiple items (e.g., "Compare techniques between A and B")
+  - It requires analytical reasoning (e.g., "Analyze trends in..." or "Why do creators...")
+  - The intent is "compare", "correlate", or involves multiple "count" operations
+  - Difficulty is "hard" and evidence_required is true
+  Set to false for simple how-to, factoid, or single-focus content searches.
+
 If you are unsure, still choose the closest option."""
 
         messages = [
@@ -75,7 +84,8 @@ If you are unsure, still choose the closest option."""
             "needs_freshness": result.needs_freshness,
             "time_horizon": result.time_horizon,
             "strict_askgvt_only": result.strict_askgvt_only,
-            "explicit_video_ids": result.explicit_video_ids
+            "explicit_video_ids": result.explicit_video_ids,
+            "requires_deep_research": result.requires_deep_research
         }
 
     return classify_query_node

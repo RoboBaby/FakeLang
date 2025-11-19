@@ -44,3 +44,9 @@ class AskGVTState(TypedDict):
 
     # Control flow
     retry_count: int
+
+    # Deep Research fields
+    requires_deep_research: Optional[bool]
+    plan_steps: Optional[List[str]]
+    past_steps: Optional[List[Dict[str, str]]]
+    visit_count: int

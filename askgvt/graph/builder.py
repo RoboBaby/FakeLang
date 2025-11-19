@@ -15,6 +15,10 @@ from askgvt.nodes import (
     create_background_answer_node,
     create_generate_answer_node,
     create_answer_critic_node,
+    create_deep_planner_node,
+    create_step_executor_node,
+    create_re_planner_node,
+    should_continue_research,
 )
 
 
@@ -45,6 +49,11 @@ def build_askgvt_graph(
     generate_answer_node = create_generate_answer_node(llm)
     answer_critic_node = create_answer_critic_node(llm)
 
+    # Deep Research nodes
+    deep_planner_node = create_deep_planner_node(llm)
+    step_executor_node = create_step_executor_node(client, embeddings)
+    re_planner_node = create_re_planner_node(llm)
+
     # Build graph
     builder = StateGraph(AskGVTState)
 
@@ -60,24 +69,37 @@ def build_askgvt_graph(
     builder.add_node("generate_answer", generate_answer_node)
     builder.add_node("answer_critic", answer_critic_node)
 
+    # Deep Research nodes
+    builder.add_node("deep_planner", deep_planner_node)
+    builder.add_node("step_executor", step_executor_node)
+    builder.add_node("re_planner", re_planner_node)
+
     # Set entry point
     builder.set_entry_point("normalize_question")
 
     # Add edges
     builder.add_edge("normalize_question", "classify_query")
 
-    # Conditional: needs corpus or background only
-    def needs_corpus(state: AskGVTState) -> str:
+    # Conditional: route based on query complexity
+    def routing_decision(state: AskGVTState) -> str:
+        # Check if visual evidence is needed at all
         if not state.get("needs_visual_evidence") and not state.get("strict_askgvt_only"):
             return "background_only"
-        return "askgvt"
+
+        # Check if deep research is needed for complex queries
+        if state.get("requires_deep_research"):
+            return "deep_research"
+
+        # Standard retrieval path
+        return "simple_retrieval"
 
     builder.add_conditional_edges(
         "classify_query",
-        needs_corpus,
+        routing_decision,
         {
             "background_only": "background_answer",
-            "askgvt": "plan_retrieval"
+            "deep_research": "deep_planner",
+            "simple_retrieval": "plan_retrieval"
         }
     )
 
@@ -108,6 +130,64 @@ def build_askgvt_graph(
         "answer_critic",
         critic_decision,
         {"done": END, "retry": "plan_retrieval"}
+    )
+
+    # Deep Research loop edges
+    builder.add_edge("deep_planner", "step_executor")
+
+    # Deep Research routing after step execution
+    def deep_research_routing(state: AskGVTState) -> str:
+        # Check visit count limit
+        if state.get("visit_count", 0) >= 5:
+            return "synthesize"
+
+        # Check if we have a final answer already
+        if state.get("final_answer"):
+            return "done"
+
+        # Check if there are more steps to execute
+        if state.get("plan_steps"):
+            return "execute"
+
+        # No steps left - need replanning
+        return "replan"
+
+    builder.add_conditional_edges(
+        "step_executor",
+        deep_research_routing,
+        {
+            "execute": "step_executor",
+            "replan": "re_planner",
+            "synthesize": "fuse_evidence",
+            "done": END
+        }
+    )
+
+    # Re-planner routing
+    def re_planner_routing(state: AskGVTState) -> str:
+        # If we have a final answer, we're done
+        if state.get("final_answer"):
+            return "done"
+
+        # Check visit count limit
+        if state.get("visit_count", 0) >= 5:
+            return "synthesize"
+
+        # If there are new steps, continue executing
+        if state.get("plan_steps"):
+            return "execute"
+
+        # Fallback - synthesize what we have
+        return "synthesize"
+
+    builder.add_conditional_edges(
+        "re_planner",
+        re_planner_routing,
+        {
+            "execute": "step_executor",
+            "synthesize": "fuse_evidence",
+            "done": END
+        }
     )
 
     return builder.compile()

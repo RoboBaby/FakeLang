@@ -113,7 +113,12 @@ def create_initial_state(user_query: str) -> AskGVTState:
         "background_answer": None,
         "final_answer": None,
         "answer_metadata": None,
-        "retry_count": 0
+        "retry_count": 0,
+        # Deep Research fields
+        "requires_deep_research": None,
+        "plan_steps": None,
+        "past_steps": None,
+        "visit_count": 0
     }
 
 

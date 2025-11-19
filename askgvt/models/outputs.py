@@ -44,6 +44,10 @@ class ClassificationOutput(BaseModel):
         default_factory=list,
         description="Specific video IDs mentioned in query"
     )
+    requires_deep_research: bool = Field(
+        default=False,
+        description="Whether this query needs multi-step investigation (complex comparisons, multi-part questions, analytical queries)"
+    )
 
 
 class QueryVariant(BaseModel):
