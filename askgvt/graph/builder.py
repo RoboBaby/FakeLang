@@ -1,6 +1,7 @@
 """LangGraph construction for AskGVT."""
 
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_core.embeddings import Embeddings
+from langchain_core.language_models import BaseChatModel
 from qdrant_client import QdrantClient
 from langgraph.graph import StateGraph, END
 
@@ -19,8 +20,8 @@ from askgvt.nodes import (
 
 def build_askgvt_graph(
     client: QdrantClient,
-    embeddings: OpenAIEmbeddings,
-    llm: ChatOpenAI
+    embeddings: Embeddings,
+    llm: BaseChatModel
 ):
     """Build the complete LangGraph for AskGVT.
 
@@ -80,14 +81,11 @@ def build_askgvt_graph(
         }
     )
 
-    # AskGVT branch: plan -> parallel searches -> fuse
+    # AskGVT branch: plan -> sequential searches -> fuse
+    # Note: Running sequentially for simplicity. Can optimize with Send() for parallelism
     builder.add_edge("plan_retrieval", "search_narrative")
-    builder.add_edge("plan_retrieval", "search_transcript")
-    builder.add_edge("plan_retrieval", "search_image")
-
-    # All searches lead to fusion (LangGraph handles parallel execution)
-    builder.add_edge("search_narrative", "fuse_evidence")
-    builder.add_edge("search_transcript", "fuse_evidence")
+    builder.add_edge("search_narrative", "search_transcript")
+    builder.add_edge("search_transcript", "search_image")
     builder.add_edge("search_image", "fuse_evidence")
 
     # Fusion -> background -> generate -> critic

@@ -3,10 +3,14 @@
 # LangChain ecosystem
 langchain>=0.1.0
 langgraph>=0.0.20
-langchain-openai>=0.0.5
+langchain-anthropic>=1.0.0
+langchain-huggingface>=1.0.0
 
 # Vector database
 qdrant-client>=1.7.0
+
+# Embeddings (local)
+sentence-transformers>=5.0.0
 
 # Data validation
 pydantic>=2.0.0

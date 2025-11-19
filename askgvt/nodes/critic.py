@@ -2,12 +2,12 @@
 
 import json
 
-from langchain_openai import ChatOpenAI
+from langchain_core.language_models import BaseChatModel
 
 from askgvt.models import AskGVTState, CriticOutput
 
 
-def create_answer_critic_node(llm: ChatOpenAI):
+def create_answer_critic_node(llm: BaseChatModel):
     """Create the answer critic node."""
 
     structured_llm = llm.with_structured_output(CriticOutput)
@@ -54,6 +54,11 @@ Evidence Summary:
             "suggested_retrieval_adjustments": result.suggested_retrieval_adjustments
         }
 
-        return {"answer_metadata": current_metadata}
+        # Increment retry_count if we're going to retry
+        updates = {"answer_metadata": current_metadata}
+        if result.should_retry_retrieval and not result.is_satisfactory:
+            updates["retry_count"] = state.get("retry_count", 0) + 1
+
+        return updates
 
     return answer_critic_node

@@ -1,9 +1,12 @@
 """Main entry point for AskGVT."""
 
 import os
-from typing import Optional
+import hashlib
+import numpy as np
+from typing import Optional, List
 
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_anthropic import ChatAnthropic
+from langchain_core.embeddings import Embeddings
 from qdrant_client import QdrantClient
 
 from askgvt.models import AskGVTState
@@ -11,33 +14,66 @@ from askgvt.search import setup_qdrant
 from askgvt.graph import build_askgvt_graph
 
 
+class MockEmbeddings(Embeddings):
+    """Mock embeddings that work offline using deterministic hashing.
+
+    This is suitable for demos and testing when network access is restricted.
+    """
+
+    def __init__(self, dimension: int = 384):
+        self.dimension = dimension
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        """Embed multiple documents."""
+        return [self._embed_text(text) for text in texts]
+
+    def embed_query(self, text: str) -> List[float]:
+        """Embed a single query."""
+        return self._embed_text(text)
+
+    def _embed_text(self, text: str) -> List[float]:
+        """Generate deterministic embedding from text hash."""
+        # Create deterministic seed from text
+        text_hash = hashlib.sha256(text.lower().encode()).digest()
+        seed = int.from_bytes(text_hash[:4], 'big')
+
+        # Generate deterministic embedding
+        rng = np.random.RandomState(seed)
+        embedding = rng.randn(self.dimension).astype(np.float32)
+
+        # Normalize to unit vector
+        norm = np.linalg.norm(embedding)
+        if norm > 0:
+            embedding = embedding / norm
+
+        return embedding.tolist()
+
+
 def create_agent(
-    openai_api_key: Optional[str] = None,
-    model: str = "gpt-4o-mini",
-    embedding_model: str = "text-embedding-ada-002"
+    anthropic_api_key: Optional[str] = None,
+    model: str = "claude-sonnet-4-20250514",
+    embedding_model: str = "mock"
 ):
     """Create and return the AskGVT agent.
 
     Args:
-        openai_api_key: OpenAI API key (uses env var if not provided)
+        anthropic_api_key: Anthropic API key (uses env var if not provided)
         model: LLM model to use
-        embedding_model: Embedding model to use
+        embedding_model: Embedding model to use (mock for offline demo)
 
     Returns:
         Tuple of (compiled graph, qdrant client, embeddings, llm)
     """
-    if openai_api_key:
-        os.environ["OPENAI_API_KEY"] = openai_api_key
+    if anthropic_api_key:
+        os.environ["ANTHROPIC_API_KEY"] = anthropic_api_key
 
-    if not os.getenv("OPENAI_API_KEY"):
-        raise ValueError("OPENAI_API_KEY not set")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise ValueError("ANTHROPIC_API_KEY not set")
 
-    # Disable tiktoken validation to avoid network issues
-    embeddings = OpenAIEmbeddings(
-        model=embedding_model,
-        check_embedding_ctx_length=False
-    )
-    llm = ChatOpenAI(model=model, temperature=0)
+    # Use mock embeddings for offline demo (no network access needed)
+    # Dimension 1536 to match OpenAI ada-002 format used in Qdrant setup
+    embeddings = MockEmbeddings(dimension=1536)
+    llm = ChatAnthropic(model=model, temperature=0)
     client = QdrantClient(location=":memory:")
 
     setup_qdrant(client, embeddings)
@@ -148,13 +184,13 @@ def main():
     """Main function to run the AskGVT agent."""
 
     print("=" * 70)
-    print("AskGVT Retrieval Agent - Full Architecture")
+    print("AskGVT Retrieval Agent - Full Architecture (Claude + Local Embeddings)")
     print("=" * 70)
 
     # Check for API key
-    if not os.getenv("OPENAI_API_KEY"):
-        print("\nError: OPENAI_API_KEY not set.")
-        print("Please set it: export OPENAI_API_KEY='your-key-here'")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        print("\nError: ANTHROPIC_API_KEY not set.")
+        print("Please set it: export ANTHROPIC_API_KEY='your-key-here'")
         return None
 
     # Create agent
@@ -172,7 +208,17 @@ def main():
     # Run graph
     print("\nRunning agent pipeline...")
     initial_state = create_initial_state(test_query)
-    result = graph.invoke(initial_state)
+    config = {"recursion_limit": 50}
+
+    # Stream to see which nodes execute
+    result = None
+    for step in graph.stream(initial_state, config=config, stream_mode="updates"):
+        for node_name, output in step.items():
+            print(f"  -> {node_name}")
+            result = output
+
+    if result is None:
+        result = initial_state
 
     # Display results
     print_results(result)

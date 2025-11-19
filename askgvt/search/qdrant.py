@@ -2,7 +2,7 @@
 
 from typing import List, Dict, Any, Optional, Literal, cast
 
-from langchain_openai import OpenAIEmbeddings
+from langchain_core.embeddings import Embeddings
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 
@@ -10,7 +10,7 @@ from askgvt.models import RetrievalHit
 from askgvt.data.mock_data import MOCK_DATA
 
 
-def setup_qdrant(client: QdrantClient, embeddings: OpenAIEmbeddings) -> QdrantClient:
+def setup_qdrant(client: QdrantClient, embeddings: Embeddings) -> QdrantClient:
     """Set up Qdrant collections and ingest mock data."""
 
     collections = ["narrative", "transcript", "image"]
@@ -51,7 +51,7 @@ def setup_qdrant(client: QdrantClient, embeddings: OpenAIEmbeddings) -> QdrantCl
 
 def search_index(
     client: QdrantClient,
-    embeddings: OpenAIEmbeddings,
+    embeddings: Embeddings,
     collection_name: str,
     query: str,
     top_k: int = 40,
@@ -61,11 +61,12 @@ def search_index(
 
     query_vector = embeddings.embed_query(query)
 
-    results = client.search(
+    # Use query_points for newer qdrant-client versions
+    results = client.query_points(
         collection_name=collection_name,
-        query_vector=query_vector,
+        query=query_vector,
         limit=top_k
-    )
+    ).points
 
     hits: List[RetrievalHit] = []
     for result in results:
