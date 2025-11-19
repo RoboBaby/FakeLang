@@ -7,7 +7,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 
 from askgvt.models import RetrievalHit
-from askgvt.data.mock_data import MOCK_DATA
+from askgvt.data.mock_data_generated import MOCK_DATA
 
 
 def setup_qdrant(client: QdrantClient, embeddings: Embeddings) -> QdrantClient:

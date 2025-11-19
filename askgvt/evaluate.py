@@ -500,7 +500,7 @@ def main(
         return
 
     # Load questions
-    csv_path = Path(__file__).parent / "data" / "test_questions.csv"
+    csv_path = Path(__file__).parent / "data" / "test_questions_generated.csv"
     print(f"\nLoading questions from {csv_path}...")
     questions = load_questions(str(csv_path), num_questions)
     print(f"Loaded {len(questions)} questions")
