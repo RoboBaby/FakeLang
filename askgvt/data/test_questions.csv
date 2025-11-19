@@ -1,0 +1,101 @@
+id,question,category,expected_videos,difficulty
+1,How do I make a smash burger?,cooking,video_A,easy
+2,What temperature should the skillet be for burgers?,cooking,video_A,medium
+3,How do I season a burger patty properly?,cooking,video_A,easy
+4,What type of cheese melts best on burgers?,cooking,video_A,medium
+5,What kind of bun works best for smash burgers?,cooking,video_A,easy
+6,How do I install a graphics card?,tech,video_B,easy
+7,What is the RTX 5090 unboxing experience like?,tech,video_B,easy
+8,How do I connect power cables to a GPU?,tech,video_B,medium
+9,Does the RTX 5090 have RGB lighting?,tech,video_B,easy
+10,How big is the RTX 5090 graphics card?,tech,video_B,medium
+11,What summer fashion trends are popular in 2025?,fashion,video_C,easy
+12,How does fabric transparency affect outfit choice?,fashion,video_C,medium
+13,What is a good way to show skirt movement?,fashion,video_C,medium
+14,What floral print dresses are trending?,fashion,video_C,easy
+15,How do I check fabric quality when shopping?,fashion,video_C,medium
+16,How do I do a proper squat?,fitness,video_D,easy
+17,What are common squat form mistakes?,fitness,video_D,easy
+18,How should my knees track during squats?,fitness,video_D,medium
+19,What is proper back position for squats?,fitness,video_D,medium
+20,How do I prevent knee cave during squats?,fitness,video_D,hard
+21,What are the best CS2 pro plays?,gaming,video_E,easy
+22,How do I clutch a 1v4 in CS2?,gaming,video_E,hard
+23,What AWP techniques do pros use?,gaming,video_E,medium
+24,How do smoke plays work in CS2?,gaming,video_E,medium
+25,What makes a good headshot in CS2?,gaming,video_E,easy
+26,How do I make a beat from scratch?,music,video_F,easy
+27,What is sidechain compression?,music,video_F,medium
+28,How do I layer synth pads over drums?,music,video_F,medium
+29,How do I adjust filter cutoff for synths?,music,video_F,hard
+30,What makes drums pump with the kick?,music,video_F,medium
+31,What are the best alleys to explore in Kyoto?,travel,video_G,easy
+32,What traditional buildings are in Kyoto?,travel,video_G,easy
+33,What is the bamboo grove in Arashiyama like?,travel,video_G,medium
+34,What temples should I visit in Kyoto?,travel,video_G,easy
+35,What is Japanese temple architecture like?,travel,video_G,medium
+36,How do I build a deck?,diy,video_H,easy
+37,What tools do I need for woodworking?,diy,video_H,easy
+38,How do I use a miter saw safely?,diy,video_H,medium
+39,How do I measure and cut deck boards?,diy,video_H,medium
+40,What safety precautions for power tools?,diy,video_H,medium
+41,How do I change my car's oil?,automotive,video_I,easy
+42,What tools do I need for an oil change?,automotive,video_I,easy
+43,How do I drain old oil from my car?,automotive,video_I,medium
+44,What type of oil filter should I use?,automotive,video_I,medium
+45,How often should I change my car's oil?,automotive,video_I,easy
+46,How do I make risotto?,cooking,video_J,easy
+47,What is the proper way to toast rice for risotto?,cooking,video_J,medium
+48,How do I add stock to risotto?,cooking,video_J,medium
+49,When do I know risotto is done?,cooking,video_J,medium
+50,What makes risotto creamy?,cooking,video_J,hard
+51,How do I solve calculus problems?,education,video_K,medium
+52,What is integration by parts?,education,video_K,hard
+53,How do I find the derivative of a function?,education,video_K,medium
+54,What are common calculus mistakes?,education,video_K,medium
+55,How do I graph a polynomial?,education,video_K,medium
+56,What makeup brushes do I need?,beauty,video_L,easy
+57,How do I apply foundation properly?,beauty,video_L,easy
+58,What is the best way to blend eyeshadow?,beauty,video_L,medium
+59,How do I achieve a natural makeup look?,beauty,video_L,medium
+60,What skincare routine should I follow?,beauty,video_L,medium
+61,How do I train my dog basic commands?,pets,video_M,easy
+62,What treats work best for dog training?,pets,video_M,easy
+63,How do I teach my dog to sit?,pets,video_M,easy
+64,What is positive reinforcement training?,pets,video_M,medium
+65,How long should training sessions be?,pets,video_M,medium
+66,What camera settings for portraits?,photography,video_N,medium
+67,How do I use natural lighting?,photography,video_N,medium
+68,What aperture is best for bokeh?,photography,video_N,medium
+69,How do I compose a good photo?,photography,video_N,medium
+70,What is the rule of thirds?,photography,video_N,easy
+71,How do I play guitar chords?,music,video_O,easy
+72,What are basic chord progressions?,music,video_O,easy
+73,How do I switch between chords smoothly?,music,video_O,medium
+74,What finger positions for G chord?,music,video_O,medium
+75,How do I strum patterns work?,music,video_O,medium
+76,What exercises for HIIT workouts?,fitness,video_P,easy
+77,How long should HIIT intervals be?,fitness,video_P,medium
+78,What is proper form for burpees?,fitness,video_P,medium
+79,How do I modify exercises for beginners?,fitness,video_P,medium
+80,What heart rate zone for HIIT?,fitness,video_P,hard
+81,How do I beat Elden Ring bosses?,gaming,video_Q,medium
+82,What build works for Malenia?,gaming,video_Q,hard
+83,When should I dodge roll in boss fights?,gaming,video_Q,medium
+84,What weapons are good for beginners?,gaming,video_Q,easy
+85,How do I level up efficiently?,gaming,video_Q,medium
+86,What street food is popular in Tokyo?,travel,video_R,easy
+87,How do I order at Japanese restaurants?,travel,video_R,medium
+88,What is the best ramen in Tokyo?,travel,video_R,easy
+89,How do I use chopsticks properly?,travel,video_R,easy
+90,What food markets should I visit?,travel,video_R,easy
+91,How do I sear a burger properly?,cooking,video_A,medium
+92,What makes wagyu beef special?,cooking,video_A,medium
+93,How do I build a gaming PC?,tech,video_B,medium
+94,What PSU do I need for RTX 5090?,tech,video_B,hard
+95,How do I match colors in outfits?,fashion,video_C,medium
+96,What deadlift form is correct?,fitness,video_D,medium
+97,How do I aim better in FPS games?,gaming,video_E,medium
+98,What DAW is best for beginners?,music,video_F,easy
+99,How do I plan a Japan itinerary?,travel,video_G,medium
+100,What wood is best for outdoor decks?,diy,video_H,medium
